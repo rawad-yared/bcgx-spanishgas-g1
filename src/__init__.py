@@ -1,0 +1,1 @@
+"""SpanishGas source package."""
