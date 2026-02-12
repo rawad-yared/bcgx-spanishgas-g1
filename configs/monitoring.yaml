@@ -1,0 +1,28 @@
+paths:
+  scoring_path: data/pipeline/gold/recommendation_candidates/run_date=2026-02-09/recommendation_candidates.jsonl
+  labels_path: data/pipeline/silver/churn_label/run_date=2026-02-09/churn_label.jsonl
+  report_path: artifacts/monitoring/model_perf.md
+
+columns:
+  score_customer_id: customer_id
+  score_value: risk_score
+  score_segment: segment
+  score_time_bucket: run_date
+  label_customer_id: customer_id
+  label_value: churned_within_horizon
+  label_time_bucket: label_date
+  label_horizon_days: horizon_days
+
+matching:
+  label_time_bucket_for_scores: 2026-01-31
+  required_horizon_days: 90
+
+evaluation:
+  top_k_fraction: 0.5
+  calibration_bins: 5
+
+trigger_thresholds:
+  min_pr_auc: 0.70
+  min_recall_at_k: 0.50
+  max_segment_calibration_drift: 0.15
+  min_evaluation_rows: 5

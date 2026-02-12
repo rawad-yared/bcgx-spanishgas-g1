@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+COPY src ./src
+COPY configs ./configs
+COPY pyproject.toml README.md ./
+
+RUN python -m pip install --upgrade pip && \
+    python -m pip install \
+      pyyaml \
+      numpy \
+      scikit-learn \
+      boto3
+
+CMD ["python", "-m", "src.pipelines.run_pipeline", "--config", "configs/pipeline.yaml"]

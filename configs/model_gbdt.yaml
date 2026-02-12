@@ -1,0 +1,19 @@
+paths:
+  training_dataset_path: s3://spanishgas-data-g1/gold/churn_training_dataset/cutoff_date=2026-01-31/churn_training_dataset.jsonl
+  baseline_metrics_path: artifacts/models/churn_baseline/metrics.json
+  model_output_dir: artifacts/models/churn_gbdt
+  comparison_report_path: artifacts/reports/churn_gbdt_vs_baseline.md
+
+model:
+  random_seed: 42
+  n_estimators: 250
+  learning_rate: 0.05
+  max_depth: 3
+
+evaluation:
+  top_k_fraction: 0.2
+  calibration_bins: 10
+  max_brier_increase: 0.03
+  max_ece_increase: 0.03
+  top_feature_count: 10
+  max_shap_samples: 300

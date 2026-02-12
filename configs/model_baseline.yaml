@@ -1,0 +1,13 @@
+paths:
+  training_dataset_path: s3://spanishgas-data-g1/gold/churn_training_dataset/cutoff_date=2026-01-31/churn_training_dataset.jsonl
+  model_output_dir: artifacts/models/churn_baseline
+  report_path: artifacts/reports/churn_baseline.md
+
+model:
+  random_seed: 42
+  max_iter: 1000
+  regularization_c: 1.0
+
+evaluation:
+  top_k_fraction: 0.2
+  calibration_bins: 10

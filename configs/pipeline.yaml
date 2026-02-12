@@ -1,0 +1,58 @@
+run:
+  run_date: 2026-02-09
+
+paths:
+  raw_root: data/pipeline/raw/
+  bronze_root: data/pipeline/bronze/
+  silver_root: data/pipeline/silver/
+  gold_root: data/pipeline/gold/
+  artifacts_root: artifacts/pipeline/
+
+steps:
+  ingestion: true
+  silver: true
+  features: true
+  training_set: true
+  train_baseline: true
+  train_gbdt: false
+  segmentation: true
+  score: true
+  recommend: true
+
+training:
+  horizon_days: 90
+  cutoff_date: 2026-01-31
+  label_run_date: 2026-02-09
+  feature_version: v1
+  asof_dates:
+    - 2025-11-30
+    - 2025-12-31
+    - 2026-01-31
+  split_rules:
+    train_end_date: 2025-11-30
+    valid_end_date: 2025-12-31
+    test_end_date: 2026-01-31
+
+baseline_model:
+  random_seed: 42
+  max_iter: 500
+  regularization_c: 1.0
+  top_k_fraction: 0.2
+  calibration_bins: 5
+
+segmentation:
+  asof_date: 2026-01-31
+  segment_count: 3
+  top_driver_count: 4
+  random_seed: 42
+  report_path: artifacts/pipeline/reports/segmentation_profile.md
+
+scoring:
+  asof_date: 2026-01-31
+  top_reason_count: 3
+  default_margin_eur: 85.0
+  min_margin_eur: 5.0
+  margin_price_delta_weight: 220.0
+  margin_interaction_weight: 2.0
+  margin_negative_flag_penalty: 6.0
+  default_acceptance_probability: 0.25

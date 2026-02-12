@@ -1,0 +1,83 @@
+{
+  "baseline_bucket": "2026-02-09",
+  "current_bucket": "2026-02-09",
+  "evaluated_rows": 6,
+  "generated_at_utc": "2026-02-12T15:59:37+00:00",
+  "labels_path": "data/pipeline/silver/churn_label/run_date=2026-02-09/churn_label.jsonl",
+  "overall_by_time_bucket": {
+    "2026-02-09": {
+      "expected_calibration_error": 0.03148416666666669,
+      "positive_rate": 0.5,
+      "pr_auc": 1.0,
+      "precision_at_k": 1.0,
+      "recall_at_k": 1.0,
+      "row_count": 6
+    }
+  },
+  "retraining_trigger": {
+    "reasons": [],
+    "value": false
+  },
+  "scoring_path": "data/pipeline/gold/recommendation_candidates/run_date=2026-02-09/recommendation_candidates.jsonl",
+  "segment_calibration_drift": [
+    {
+      "baseline_bucket": "2026-02-09",
+      "baseline_ece": 3.33333333379926e-07,
+      "calibration_drift": 0.0,
+      "current_bucket": "2026-02-09",
+      "current_ece": 3.33333333379926e-07,
+      "segment": "S00"
+    },
+    {
+      "baseline_bucket": "2026-02-09",
+      "baseline_ece": 0.092977,
+      "calibration_drift": 0.0,
+      "current_bucket": "2026-02-09",
+      "current_ece": 0.092977,
+      "segment": "S01"
+    },
+    {
+      "baseline_bucket": "2026-02-09",
+      "baseline_ece": 0.00295,
+      "calibration_drift": 0.0,
+      "current_bucket": "2026-02-09",
+      "current_ece": 0.00295,
+      "segment": "S02"
+    }
+  ],
+  "segment_metrics_current_bucket": {
+    "S00": {
+      "expected_calibration_error": 3.33333333379926e-07,
+      "positive_rate": 1.0,
+      "pr_auc": 1.0,
+      "precision_at_k": 1.0,
+      "recall_at_k": 0.6666666666666666,
+      "row_count": 3
+    },
+    "S01": {
+      "expected_calibration_error": 0.092977,
+      "positive_rate": 0.0,
+      "pr_auc": 0.0,
+      "precision_at_k": 0.0,
+      "recall_at_k": 0.0,
+      "row_count": 2
+    },
+    "S02": {
+      "expected_calibration_error": 0.00295,
+      "positive_rate": 0.0,
+      "pr_auc": 0.0,
+      "precision_at_k": 0.0,
+      "recall_at_k": 0.0,
+      "row_count": 1
+    }
+  },
+  "thresholds": {
+    "max_segment_calibration_drift": 0.15,
+    "min_evaluation_rows": 5,
+    "min_pr_auc": 0.7,
+    "min_recall_at_k": 0.5
+  },
+  "time_buckets": [
+    "2026-02-09"
+  ]
+}

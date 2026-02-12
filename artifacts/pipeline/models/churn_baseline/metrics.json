@@ -1,0 +1,43 @@
+{
+  "metrics": {
+    "test": {
+      "avg_predicted_probability": 0.5314838901039219,
+      "brier_score": 0.0034933395148541596,
+      "expected_calibration_error": 0.03148414184463921,
+      "positive_rate": 0.5,
+      "pr_auc": 1.0,
+      "precision_at_k": 1.0,
+      "recall_at_k": 0.6666666666666666,
+      "row_count": 6,
+      "split": "test"
+    },
+    "train": {
+      "avg_predicted_probability": 0.4999947352677941,
+      "brier_score": 3.462082634576519e-08,
+      "expected_calibration_error": 0.00013373056039564692,
+      "positive_rate": 0.5,
+      "pr_auc": 1.0,
+      "precision_at_k": 1.0,
+      "recall_at_k": 0.6666666666666666,
+      "row_count": 6,
+      "split": "train"
+    },
+    "valid": {
+      "avg_predicted_probability": 0.5014986899925079,
+      "brier_score": 8.191209710120322e-06,
+      "expected_calibration_error": 0.0015046040126356457,
+      "positive_rate": 0.5,
+      "pr_auc": 1.0,
+      "precision_at_k": 1.0,
+      "recall_at_k": 0.6666666666666666,
+      "row_count": 6,
+      "split": "valid"
+    }
+  },
+  "primary_eval_split": "test",
+  "split_counts": {
+    "test": 6,
+    "train": 6,
+    "valid": 6
+  }
+}
