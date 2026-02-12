@@ -22,5 +22,5 @@ dist/
 .DS_Store
 .idea/
 .vscode/
-data/
-docs/
+/data/
+/docs/
