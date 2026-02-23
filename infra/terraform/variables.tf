@@ -46,6 +46,30 @@ variable "training_instance_type" {
   default     = "ml.m5.xlarge"
 }
 
+variable "streamlit_cpu" {
+  description = "Fargate CPU units for Streamlit task"
+  type        = number
+  default     = 512
+}
+
+variable "streamlit_memory" {
+  description = "Fargate memory (MiB) for Streamlit task"
+  type        = number
+  default     = 1024
+}
+
+variable "streamlit_desired_count" {
+  description = "Number of Streamlit ECS tasks"
+  type        = number
+  default     = 1
+}
+
+variable "github_repo" {
+  description = "GitHub repository in owner/repo format for OIDC"
+  type        = string
+  default     = "rawad-yared/bcgx-spanishgas-g1"
+}
+
 variable "tags" {
   description = "Additional tags for all resources"
   type        = map(string)

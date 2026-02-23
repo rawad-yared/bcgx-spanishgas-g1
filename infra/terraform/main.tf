@@ -97,6 +97,50 @@ module "sagemaker" {
   environment  = var.environment
 }
 
+# --- Networking (default VPC for ECS) ---
+module "networking" {
+  source       = "./modules/networking"
+  project_name = var.project_name
+  environment  = var.environment
+}
+
+# --- ECS (Streamlit Dashboard) ---
+module "ecs" {
+  source       = "./modules/ecs"
+  project_name = var.project_name
+  environment  = var.environment
+
+  vpc_id                = module.networking.vpc_id
+  subnet_ids            = module.networking.subnet_ids
+  alb_security_group_id = module.networking.alb_security_group_id
+  ecs_security_group_id = module.networking.ecs_security_group_id
+
+  streamlit_image_uri    = "${module.ecr.streamlit_repo_url}:latest"
+  task_execution_role_arn = module.iam.ecs_execution_role_arn
+  task_role_arn          = module.iam.ecs_task_role_arn
+
+  s3_bucket_name      = module.s3.bucket_name
+  dynamodb_table_name = module.dynamodb.table_name
+  aws_region          = var.aws_region
+
+  cpu           = var.streamlit_cpu
+  memory        = var.streamlit_memory
+  desired_count = var.streamlit_desired_count
+}
+
+# --- GitHub OIDC (CI/CD) ---
+module "github_oidc" {
+  source       = "./modules/github_oidc"
+  project_name = var.project_name
+  environment  = var.environment
+  github_repo  = var.github_repo
+
+  s3_bucket_arn       = module.s3.bucket_arn
+  dynamodb_table_arn  = module.dynamodb.table_arn
+  ecr_arns            = [module.ecr.lambda_repo_arn, module.ecr.processing_repo_arn, module.ecr.streamlit_repo_arn]
+  lambda_function_arn = module.lambda.function_arn
+}
+
 # --- Monitoring ---
 module "monitoring" {
   source             = "./modules/monitoring"

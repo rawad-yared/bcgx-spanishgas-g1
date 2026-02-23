@@ -82,6 +82,14 @@ jobs:
           docker build -f Dockerfile.processing -t $ECR_REGISTRY/$ECR_REPO_PROCESSING:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_PROCESSING:latest .
           docker push $ECR_REGISTRY/$ECR_REPO_PROCESSING --all-tags
 
+      - name: Build and push Streamlit image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPO_STREAMLIT: ${{ env.PROJECT_NAME }}-streamlit
+        run: |
+          docker build --provenance=false -f Dockerfile.streamlit -t $ECR_REGISTRY/$ECR_REPO_STREAMLIT:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_STREAMLIT:latest .
+          docker push $ECR_REGISTRY/$ECR_REPO_STREAMLIT --all-tags
+
       - name: Update Lambda function
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -90,3 +98,10 @@ jobs:
           aws lambda update-function-code \
             --function-name ${{ env.PROJECT_NAME }}-pipeline-trigger \
             --image-uri $ECR_REGISTRY/$ECR_REPO_LAMBDA:${{ github.sha }}
+
+      - name: Update Streamlit ECS service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.PROJECT_NAME }}-${{ vars.ENVIRONMENT || 'dev' }}-cluster \
+            --service ${{ env.PROJECT_NAME }}-${{ vars.ENVIRONMENT || 'dev' }}-streamlit \
+            --force-new-deployment

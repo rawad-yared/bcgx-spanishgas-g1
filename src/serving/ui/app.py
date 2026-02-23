@@ -10,10 +10,13 @@ st.sidebar.title("SpanishGas MLOps")
 
 page = st.sidebar.radio(
     "Navigate",
-    ["Model Performance", "Drift Monitor", "Customer Risk", "Pipeline Status"],
+    ["Overview", "Model Performance", "Drift Monitor", "Customer Risk", "Recommendations", "Pipeline Status"],
 )
 
-if page == "Model Performance":
+if page == "Overview":
+    from src.serving.ui.pages.overview import render
+    render()
+elif page == "Model Performance":
     from src.serving.ui.pages.model_performance import render
     render()
 elif page == "Drift Monitor":
@@ -21,6 +24,9 @@ elif page == "Drift Monitor":
     render()
 elif page == "Customer Risk":
     from src.serving.ui.pages.customer_risk import render
+    render()
+elif page == "Recommendations":
+    from src.serving.ui.pages.recommendations import render
     render()
 elif page == "Pipeline Status":
     from src.serving.ui.pages.pipeline_status import render

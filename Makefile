@@ -1,4 +1,4 @@
-.PHONY: install lint test test-cov docker-build-lambda docker-build-processing tf-plan tf-apply streamlit
+.PHONY: install lint test test-cov docker-build-lambda docker-build-processing docker-build-streamlit docker-run-streamlit tf-plan tf-apply streamlit
 
 install:
 	pip install -e ".[dev]"
@@ -29,6 +29,12 @@ tf-plan:
 
 tf-apply:
 	cd infra/terraform && terraform apply -var-file=environments/dev.tfvars
+
+docker-build-streamlit:
+	docker build -f Dockerfile.streamlit -t spanishgas-streamlit .
+
+docker-run-streamlit:
+	docker run --rm -p 8501:8501 spanishgas-streamlit
 
 streamlit:
 	streamlit run src/serving/ui/app.py --server.headless=true

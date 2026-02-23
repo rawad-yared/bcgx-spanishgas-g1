@@ -37,3 +37,28 @@ output "model_package_group" {
   description = "SageMaker Model Package Group name"
   value       = module.sagemaker.model_package_group_name
 }
+
+output "ecr_streamlit_repo_url" {
+  description = "ECR repository URL for Streamlit image"
+  value       = module.ecr.streamlit_repo_url
+}
+
+output "streamlit_alb_dns_name" {
+  description = "ALB DNS name for the Streamlit dashboard"
+  value       = module.ecs.alb_dns_name
+}
+
+output "ecs_cluster_name" {
+  description = "ECS cluster name"
+  value       = module.ecs.cluster_name
+}
+
+output "ecs_service_name" {
+  description = "ECS Streamlit service name"
+  value       = module.ecs.service_name
+}
+
+output "github_deploy_role_arn" {
+  description = "IAM role ARN for GitHub Actions OIDC (set as AWS_DEPLOY_ROLE_ARN secret)"
+  value       = module.github_oidc.deploy_role_arn
+}

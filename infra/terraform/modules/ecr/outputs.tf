@@ -13,3 +13,11 @@ output "processing_repo_url" {
 output "processing_repo_arn" {
   value = aws_ecr_repository.processing.arn
 }
+
+output "streamlit_repo_url" {
+  value = aws_ecr_repository.streamlit.repository_url
+}
+
+output "streamlit_repo_arn" {
+  value = aws_ecr_repository.streamlit.arn
+}
