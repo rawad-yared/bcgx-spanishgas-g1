@@ -6,13 +6,15 @@ Churn prediction system for 20,099 Spanish energy customers. Converting Jupyter 
 ## Branch
 `feature/aws-mlops-pipeline` (from `main`)
 
-## Current State (session 6)
+## Current State (session 7)
 - **All 8 phases complete** (0-7) + **Streamlit auto-deployment + UI enhancements + GitHub OIDC**
-- **Infrastructure deployed to AWS** — 25/25 Terraform resources, Docker images in ECR
+- **Infrastructure deployed to AWS** — 44 Terraform resources (25 base + 19 session 7: ECS, ALB, networking, OIDC, Streamlit ECR, SNS subscription)
+- **All 3 Docker images in ECR** — Lambda, Processing, Streamlit
 - **121 tests passing** across 18 test files, 1 skipped (xgboost conditional), 1 pre-existing failure (test_aws_defaults bucket name mismatch)
 - **Ruff lint clean**
-- **Latest commit:** `f3262ca` — README revamp
-- **Prior commit:** `67df636` — Streamlit auto-deploy, enhanced UI, GitHub OIDC, expanded tests
+- **Branch pushed to GitHub** — CI workflow triggers on `feature/**` pushes
+- **GitHub secret set** — `AWS_DEPLOY_ROLE_ARN` for OIDC deploy
+- **Latest commit:** `635139b` — CLAUDE.md + CONTEXT.MD update
 - **Waiting on:** SageMaker training job quota (`ml.m5.xlarge`) approval before pipeline can run
 
 ## Key Architecture
@@ -104,6 +106,13 @@ tests/test_imports.py              - 1 test (package import smoke test)
 ## Known Issues
 - SageMaker `ml.m5.xlarge for training job usage` quota pending approval (processing quota approved)
 - `test_aws_defaults` fails due to `.env` having `spanishgas-data-dev` vs test expecting `spanishgas-data-g1` (pre-existing)
+
+## IAM User Policy
+- `powerco-mlflow-local` now has **AdministratorAccess** only (10 granular policies replaced in session 7 to fit the 10-policy limit and add EC2/ECS/ELB permissions)
+
+## Streamlit Dashboard
+- **ALB DNS:** `spanishgas-dev-streamlit-alb-1221532574.eu-west-1.elb.amazonaws.com`
+- ECS Fargate service: `spanishgas-dev-streamlit` in `spanishgas-dev-cluster`
 
 ## Full Context
 See `CONTEXT.MD` for complete dump with all files changed, decisions, blockers, and ordered next steps.

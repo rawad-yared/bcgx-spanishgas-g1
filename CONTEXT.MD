@@ -1,11 +1,11 @@
 # Context Dump
 
-## Session Info (updated 2026-02-23 session 6)
+## Session Info (updated 2026-02-23 session 7)
 - **Timestamp:** 2026-02-23
-- **Branch:** `feature/aws-mlops-pipeline`
-- **Latest commit:** `f3262ca` ("Revamp README with full architecture diagrams, dataset docs, and setup guide")
-- **Prior commit:** `67df636` ("Add Streamlit auto-deployment, enhanced UI, GitHub OIDC, and expanded tests")
-- **All phases committed + infrastructure deployed to AWS + Streamlit auto-deploy stack added.** Clean working tree (except CLAUDE.md + CONTEXT.MD).
+- **Branch:** `feature/aws-mlops-pipeline` (pushed to GitHub)
+- **Latest commit:** `635139b` ("Update CLAUDE.md and CONTEXT.MD with session 6 changes")
+- **Prior commit:** `f3262ca` ("Revamp README with full architecture diagrams, dataset docs, and setup guide")
+- **All phases committed + full infrastructure deployed to AWS (44 resources) + all 3 Docker images in ECR + GitHub secret set + branch pushed.**
 
 ---
 
@@ -37,20 +37,12 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 
 ---
 
-## Files Inspected (this session)
-
-- `src/pipelines/lambda_handler.py` (read at session start)
-- `src/pipelines/manifest.py` (read at session start)
-- `src/pipelines/s3_io.py` (read at session start)
-- `src/pipelines/steps/__init__.py` (read at session start)
-- `src/data/ingest.py` (read at session start)
-- All files listed in `find src -name "*.py"` and `find tests -name "*.py"`
-- `git status --short` output
-- Test results from `python -m pytest tests/`
-
----
-
 ## Files Changed (and purpose)
+
+### Session 7 — Infrastructure Deploy + Docker Push + GitHub Setup:
+- No code files changed — session focused on deploying infrastructure, pushing Docker images, and configuring GitHub
+- `CLAUDE.md` - MODIFIED: Updated to session 7 state, added IAM policy note, ALB DNS, Streamlit dashboard section
+- `CONTEXT.MD` - MODIFIED: Updated session info, next steps, resources, commands, decisions, blockers, TODOs
 
 ### Session 6 — Streamlit Auto-Deploy + UI + OIDC + Tests + README:
 - `Dockerfile.streamlit` - NEW: Streamlit container image (python:3.12-slim, healthcheck, env vars)
@@ -203,6 +195,8 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | SFN role needs EventBridge permissions | `.sync` integrations create managed EventBridge rules to monitor SageMaker job completion |
 | Terraform state in separate S3 bucket | `spanishgas-terraform-state` created manually before `terraform init` (chicken-and-egg) |
 | AdministratorAccess for IAM user during deploy | Simplest for dev account; should scope down for prod |
+| Replaced 10 granular IAM policies with AdministratorAccess | Hit 10-policy-per-user AWS limit; needed EC2/ECS/ELB for session 7 infra |
+| gh CLI installed via Homebrew for GitHub secret management | Needed for `gh secret set` to configure OIDC deploy role |
 
 ---
 
@@ -229,6 +223,12 @@ Docker Desktop buildx creates OCI manifests; Lambda requires Docker V2 Schema 2.
 ### FIXED: IAM user missing DynamoDB access (session 5)
 `terraform plan` failed — `powerco-mlflow-local` user lacked DynamoDB permissions for lock table. Resolved by attaching `AdministratorAccess`.
 
+### FIXED: IAM user missing EC2/ECS/ELB permissions (session 7)
+`terraform plan` failed — `powerco-mlflow-local` lacked `ec2:DescribeVpcAttribute` (and ECS/ELB permissions) for networking + ECS modules. Had 10 granular policies (AWS limit). Replaced all 10 with `AdministratorAccess`.
+
+### FIXED: Dockerfiles missing from working tree (session 7)
+`Dockerfile.lambda`, `Dockerfile.processing`, `Dockerfile.streamlit` tracked in git but absent from working tree. Restored with `git checkout HEAD -- Dockerfile.*`.
+
 ### PENDING: SageMaker training job quota
 `ml.m5.xlarge for training job usage` requested (increase to 1), awaiting approval. Processing quota already approved.
 
@@ -236,14 +236,15 @@ Docker Desktop buildx creates OCI manifests; Lambda requires Docker V2 Schema 2.
 
 ## Exact Next Steps (ordered)
 
-All code work complete. Waiting on SageMaker training job quota approval.
+All code and infra work complete. Waiting on SageMaker training job quota approval.
 
-1. **Wait for SageMaker training job quota** — `ml.m5.xlarge for training job usage` (requested, pending approval)
-2. **Run `terraform apply`** — deploy session 6 infra changes (ECS, networking, OIDC, Streamlit ECR, alert_email)
-3. **Build & push Streamlit Docker image** — `docker build --provenance=false -f Dockerfile.streamlit ...` + push to ECR
-4. **Set GitHub secret** — `terraform output github_deploy_role_arn` -> set as `AWS_DEPLOY_ROLE_ARN` in repo secrets
-5. **Upload raw data** — `aws s3 cp <data>.csv s3://spanishgas-data-dev/raw/` (triggers full pipeline automatically)
-6. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
+1. ~~**Run `terraform apply`**~~ — DONE session 7 (19 new resources: ECS, ALB, networking, OIDC, Streamlit ECR, SNS subscription)
+2. ~~**Build & push Streamlit Docker image**~~ — DONE session 7 (pushed to `spanishgas-dev-streamlit` ECR)
+3. ~~**Set GitHub secret**~~ — DONE session 7 (`AWS_DEPLOY_ROLE_ARN` set via `gh secret set`)
+4. ~~**Push branch to GitHub**~~ — DONE session 7 (CI workflow triggered)
+5. **Wait for SageMaker training job quota** — `ml.m5.xlarge for training job usage` (requested, pending approval)
+6. **Upload raw data** — `aws s3 cp <data>.csv s3://spanishgas-data-dev/raw/` (triggers full pipeline automatically)
+7. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
 
 ---
 
@@ -258,7 +259,9 @@ All code work complete. Waiting on SageMaker training job quota approval.
 - S3 bucket: `spanishgas-terraform-state` (versioning + encryption)
 - DynamoDB table: `spanishgas-terraform-locks` (PK: LockID)
 
-### Resources Created (25/25 via terraform apply)
+### Resources Created (44 total via terraform apply)
+
+**Session 5 (25 resources):**
 - S3 bucket: `spanishgas-data-dev`
 - DynamoDB table: `spanishgas-dev-pipeline-manifest`
 - IAM roles: `spanishgas-dev-lambda-role`, `spanishgas-dev-sfn-role`, `spanishgas-dev-sagemaker-role`
@@ -269,10 +272,24 @@ All code work complete. Waiting on SageMaker training job quota approval.
 - SNS topic: `spanishgas-dev-alerts`
 - CloudWatch alarms: lambda-errors, sfn-failures, drift-detected
 
+**Session 7 (19 resources):**
+- ECS Fargate cluster: `spanishgas-dev-cluster`
+- ECS service: `spanishgas-dev-streamlit`
+- ECS task definition (Streamlit container)
+- ALB: `spanishgas-dev-streamlit-alb` (DNS: `spanishgas-dev-streamlit-alb-1221532574.eu-west-1.elb.amazonaws.com`)
+- ALB listener (HTTP:80) + target group
+- CloudWatch log group for ECS
+- Security groups: ALB (ingress 80) + ECS (ingress from ALB)
+- ECR repo: `spanishgas-dev-streamlit` + lifecycle policy
+- IAM roles: `spanishgas-dev-ecs-execution-role`, `spanishgas-dev-ecs-task-role` + policies
+- GitHub OIDC provider + `spanishgas-dev-github-deploy-role`
+- SNS email subscription (rawad.yared@student.ie.edu)
+
 ### Docker Images Pushed
 - `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-lambda:latest`
 - `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-processing:latest`
-- Both rebuilt with `--provenance=false` for Docker V2 manifest (Lambda requirement)
+- `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-streamlit:latest`
+- All built with `--provenance=false` for Docker V2 manifest
 
 ### SageMaker Quotas
 - `ml.m5.xlarge for processing job usage`: approved (1)
@@ -282,6 +299,25 @@ All code work complete. Waiting on SageMaker training job quota approval.
 - `.env` - MODIFIED: S3_BUCKET → spanishgas-data-dev, DYNAMODB_MANIFEST_TABLE → spanishgas-dev-pipeline-manifest, real ARNs from terraform output
 - `infra/terraform/modules/iam/main.tf` - MODIFIED: Added EventBridge permissions (events:PutRule, PutTargets, DescribeRule, DeleteRule, RemoveTargets) for SFN .sync integrations
 - `infra/terraform/.terraform.lock.hcl` - NEW: Provider lock file (AWS provider v5.100.0)
+
+---
+
+## Commands Run + Key Outputs (session 7)
+
+```
+aws iam list-attached-user-policies --user-name powerco-mlflow-local  # 10 granular policies, no AdministratorAccess
+aws iam detach-user-policy (x10)                                      # Removed all 10 granular policies
+aws iam attach-user-policy --policy-arn AdministratorAccess           # Attached AdministratorAccess
+terraform plan -var-file=environments/dev.tfvars                      # 19 to add, 0 to change, 0 to destroy
+terraform apply -var-file=environments/dev.tfvars -auto-approve       # 19/19 Apply complete!
+git checkout HEAD -- Dockerfile.*                                     # Restored missing Dockerfiles
+docker build --provenance=false -f Dockerfile.streamlit .             # Built Streamlit image
+docker push <ecr>/spanishgas-dev-streamlit:latest                     # Pushed to ECR
+brew install gh                                                       # Installed GitHub CLI
+gh auth login                                                         # Authenticated via browser device flow
+gh secret set AWS_DEPLOY_ROLE_ARN                                     # Set OIDC role ARN in GitHub secrets
+git push -u origin feature/aws-mlops-pipeline                        # Pushed branch to GitHub (CI triggered)
+```
 
 ---
 
@@ -358,6 +394,11 @@ SKIPPED: tests/test_models.py::TestModelDefinitions::test_xgboost_included_when_
 - [x] Add Streamlit page render tests (DONE session 6 — 8 tests)
 - [x] Add env var config for Streamlit (DONE session 6 — DATA_SOURCE, S3_BUCKET, AWS_REGION, DYNAMODB_MANIFEST_TABLE)
 - [x] Revamp README (DONE session 6 — 701 lines, full architecture diagrams)
+- [x] Deploy session 6 infra (DONE session 7 — 19 resources: ECS, ALB, networking, OIDC, Streamlit ECR, SNS sub)
+- [x] Fix IAM user permissions for EC2/ECS/ELB (DONE session 7 — replaced 10 policies with AdministratorAccess)
+- [x] Build & push Streamlit Docker image (DONE session 7 — pushed to spanishgas-dev-streamlit ECR)
+- [x] Install gh CLI + set GitHub secret (DONE session 7 — AWS_DEPLOY_ROLE_ARN set)
+- [x] Push branch to GitHub (DONE session 7 — CI workflow triggered)
 - [ ] Wait for SageMaker training job quota approval
 - [ ] Upload raw data to s3://spanishgas-data-dev/raw/
 - [ ] Open PR: feature/aws-mlops-pipeline -> main
