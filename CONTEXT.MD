@@ -1,10 +1,11 @@
 # Context Dump
 
-## Session Info (updated 2026-02-23 session 4)
+## Session Info (updated 2026-02-23 session 6)
 - **Timestamp:** 2026-02-23
 - **Branch:** `feature/aws-mlops-pipeline`
-- **Latest commit:** `be178d2` ("Implement full AWS MLOps pipeline: Phases 0-7")
-- **All phases committed.** 106 files, 26,884 insertions. Clean working tree.
+- **Latest commit:** `f3262ca` ("Revamp README with full architecture diagrams, dataset docs, and setup guide")
+- **Prior commit:** `67df636` ("Add Streamlit auto-deployment, enhanced UI, GitHub OIDC, and expanded tests")
+- **All phases committed + infrastructure deployed to AWS + Streamlit auto-deploy stack added.** Clean working tree (except CLAUDE.md + CONTEXT.MD).
 
 ---
 
@@ -26,8 +27,13 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | 3: Lambda + Step Functions + Docker | DONE | All step files, run.py, Dockerfiles written |
 | 4: SageMaker Training + Registry | DONE | train_step.py, evaluate_step.py, registry.py, artifacts.py all written |
 | 5: Monitoring + Drift | DONE | drift.py, data_quality.py, alerts.py, reference_store.py, drift_step.py all written |
-| 6: Streamlit Dashboard | DONE | app.py + 4/4 pages + data_loader.py (pipeline_status.py added session 4) |
+| 6: Streamlit Dashboard | DONE | app.py + 6/6 pages + data_loader.py (overview + recommendations added session 6) |
 | 7: CI/CD + Ops | DONE | ci.yml, deploy.yml, retrain.yml (3 GitHub Actions workflows) |
+| 8: Streamlit Auto-Deploy | DONE (session 6) | Dockerfile.streamlit, ECS Fargate, ALB, networking, ECR repo, deploy.yml updated |
+| 9: GitHub OIDC | DONE (session 6) | OIDC provider + scoped deploy role Terraform module |
+| 10: UI Enhancements | DONE (session 6) | Overview page, Recommendations page, env var config for S3/DynamoDB |
+| 11: Test Expansion | DONE (session 6) | E2E tests 1->22, page render tests (8), pytest.mark.slow registered |
+| 12: README Revamp | DONE (session 6) | 701-line README with architecture diagrams, dataset docs, setup guide |
 
 ---
 
@@ -45,6 +51,30 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 ---
 
 ## Files Changed (and purpose)
+
+### Session 6 — Streamlit Auto-Deploy + UI + OIDC + Tests + README:
+- `Dockerfile.streamlit` - NEW: Streamlit container image (python:3.12-slim, healthcheck, env vars)
+- `Makefile` - MODIFIED: Added docker-build-streamlit, docker-run-streamlit targets
+- `pyproject.toml` - MODIFIED: Added pytest.mark.slow marker registration
+- `src/serving/ui/app.py` - MODIFIED: Added Overview + Recommendations pages to navigation
+- `src/serving/ui/data_loader.py` - MODIFIED: Added env var config (DATA_SOURCE, S3_BUCKET, AWS_REGION, DYNAMODB_TABLE), load_recommendations()
+- `src/serving/ui/pages/overview.py` - NEW: Executive KPI dashboard page
+- `src/serving/ui/pages/recommendations.py` - NEW: Retention recommendations page with filters + charts
+- `tests/test_pipeline_e2e.py` - MODIFIED: Expanded from 1 to 22 tests (silver, gold, score, full pipeline)
+- `tests/test_streamlit_pages.py` - NEW: 8 page render tests for 4 existing pages
+- `infra/terraform/environments/dev.tfvars` - MODIFIED: alert_email set to rawad.yared@student.ie.edu
+- `infra/terraform/main.tf` - MODIFIED: Added networking, ecs, github_oidc module blocks
+- `infra/terraform/variables.tf` - MODIFIED: Added streamlit_cpu/memory/desired_count, github_repo
+- `infra/terraform/outputs.tf` - MODIFIED: Added ecr_streamlit_repo_url, streamlit_alb_dns_name, ecs outputs, github_deploy_role_arn
+- `infra/terraform/modules/ecr/main.tf` - MODIFIED: Added streamlit ECR repo + lifecycle
+- `infra/terraform/modules/ecr/outputs.tf` - MODIFIED: Added streamlit_repo_url, streamlit_repo_arn
+- `infra/terraform/modules/iam/main.tf` - MODIFIED: Added ecs_execution + ecs_task roles
+- `infra/terraform/modules/iam/outputs.tf` - MODIFIED: Added ecs_execution_role_arn, ecs_task_role_arn
+- `infra/terraform/modules/networking/` - NEW: Default VPC, ALB + ECS security groups (3 files)
+- `infra/terraform/modules/ecs/` - NEW: Fargate cluster, task def, service, ALB, target group, CW logs (3 files)
+- `infra/terraform/modules/github_oidc/` - NEW: OIDC provider + scoped deploy role (3 files)
+- `.github/workflows/deploy.yml` - MODIFIED: Added Streamlit Docker build/push + ECS force redeploy
+- `README.md` - REWRITTEN: 701-line comprehensive README with architecture diagrams, datasets, setup guide
 
 ### Phase 0 (all DONE in prior session):
 - `.env.example` - NEW: All environment variables for AWS config
@@ -169,6 +199,10 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | Moto tests use `with mock_aws():` context managers per test | Avoids state leaking between tests (no shared fixtures) |
 | Drift test assertions use `==` not `is` for booleans | scipy returns numpy.bool_ which fails identity check |
 | .gitignore uses `/data/` (leading slash) | Only ignores top-level data dir, not src/data/ |
+| Docker `--provenance=false` for Lambda images | Lambda rejects OCI image manifests from Docker Desktop buildx; V2 Schema 2 required |
+| SFN role needs EventBridge permissions | `.sync` integrations create managed EventBridge rules to monitor SageMaker job completion |
+| Terraform state in separate S3 bucket | `spanishgas-terraform-state` created manually before `terraform init` (chicken-and-egg) |
+| AdministratorAccess for IAM user during deploy | Simplest for dev account; should scope down for prod |
 
 ---
 
@@ -186,19 +220,88 @@ Pattern `data/` was ignoring `src/data/` as well. Changed to `/data/` to only ma
 ### FIXED: numpy.bool_ identity comparison in drift tests (session 4)
 `assert result["drifted"] is True` fails because scipy returns `numpy.bool_`, not Python `bool`. Changed to `== True`.
 
+### FIXED: SFN IAM missing EventBridge permissions (session 5)
+`terraform apply` failed creating Step Functions state machine — SFN role not authorized to create managed-rule. Added `events:PutRule/PutTargets/DescribeRule/DeleteRule/RemoveTargets` scoped to `StepFunctionsGetEventsForSageMakerProcessingJobsRule`.
+
+### FIXED: Lambda OCI image manifest rejected (session 5)
+Docker Desktop buildx creates OCI manifests; Lambda requires Docker V2 Schema 2. Rebuilt with `docker build --provenance=false`.
+
+### FIXED: IAM user missing DynamoDB access (session 5)
+`terraform plan` failed — `powerco-mlflow-local` user lacked DynamoDB permissions for lock table. Resolved by attaching `AdministratorAccess`.
+
+### PENDING: SageMaker training job quota
+`ml.m5.xlarge for training job usage` requested (increase to 1), awaiting approval. Processing quota already approved.
+
 ---
 
 ## Exact Next Steps (ordered)
 
-All implementation phases are complete. Potential follow-up work:
+All code work complete. Waiting on SageMaker training job quota approval.
 
-1. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
-2. **Expand E2E test** — test_pipeline_e2e.py currently only tests bronze; could extend through gold/train/score
-3. **Terraform validate** — run `terraform init && terraform validate` in infra/terraform/
-4. **Docker build test** — build both Dockerfile.lambda and Dockerfile.processing locally
-5. **Streamlit smoke test** — run `streamlit run src/serving/ui/app.py` with sample data
-6. **Register pytest.mark.slow** — add `markers = ["slow"]` to pyproject.toml to suppress warning
-7. **Wire up alert_email** — set actual email in tfvars for SNS subscription
+1. **Wait for SageMaker training job quota** — `ml.m5.xlarge for training job usage` (requested, pending approval)
+2. **Run `terraform apply`** — deploy session 6 infra changes (ECS, networking, OIDC, Streamlit ECR, alert_email)
+3. **Build & push Streamlit Docker image** — `docker build --provenance=false -f Dockerfile.streamlit ...` + push to ECR
+4. **Set GitHub secret** — `terraform output github_deploy_role_arn` -> set as `AWS_DEPLOY_ROLE_ARN` in repo secrets
+5. **Upload raw data** — `aws s3 cp <data>.csv s3://spanishgas-data-dev/raw/` (triggers full pipeline automatically)
+6. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
+
+---
+
+## AWS Deployment (session 5)
+
+### Account & Region
+- **Account ID:** 559307249592
+- **IAM User:** `powerco-mlflow-local` (AdministratorAccess)
+- **Region:** eu-west-1
+
+### Terraform State Backend (created manually in console)
+- S3 bucket: `spanishgas-terraform-state` (versioning + encryption)
+- DynamoDB table: `spanishgas-terraform-locks` (PK: LockID)
+
+### Resources Created (25/25 via terraform apply)
+- S3 bucket: `spanishgas-data-dev`
+- DynamoDB table: `spanishgas-dev-pipeline-manifest`
+- IAM roles: `spanishgas-dev-lambda-role`, `spanishgas-dev-sfn-role`, `spanishgas-dev-sagemaker-role`
+- Lambda: `spanishgas-dev-pipeline-trigger` (ECR image, S3 trigger on `raw/` prefix)
+- Step Functions: `spanishgas-dev-pipeline` (ASL with .sync SageMaker integrations)
+- ECR repos: `spanishgas-dev-lambda`, `spanishgas-dev-processing`
+- SageMaker Model Package Group: `spanishgas-dev-churn`
+- SNS topic: `spanishgas-dev-alerts`
+- CloudWatch alarms: lambda-errors, sfn-failures, drift-detected
+
+### Docker Images Pushed
+- `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-lambda:latest`
+- `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-processing:latest`
+- Both rebuilt with `--provenance=false` for Docker V2 manifest (Lambda requirement)
+
+### SageMaker Quotas
+- `ml.m5.xlarge for processing job usage`: approved (1)
+- `ml.m5.xlarge for training job usage`: pending approval (requested 1)
+
+### Files Changed (session 5)
+- `.env` - MODIFIED: S3_BUCKET → spanishgas-data-dev, DYNAMODB_MANIFEST_TABLE → spanishgas-dev-pipeline-manifest, real ARNs from terraform output
+- `infra/terraform/modules/iam/main.tf` - MODIFIED: Added EventBridge permissions (events:PutRule, PutTargets, DescribeRule, DeleteRule, RemoveTargets) for SFN .sync integrations
+- `infra/terraform/.terraform.lock.hcl` - NEW: Provider lock file (AWS provider v5.100.0)
+
+---
+
+## Commands Run + Key Outputs (session 5)
+
+```
+terraform init                                        # Backend connected, 8 modules initialized, AWS provider v5.100.0
+terraform plan -var-file=environments/dev.tfvars      # 25 to add (first run failed: DynamoDB access denied)
+# Fixed: Added AdministratorAccess to IAM user
+terraform apply -var-file=environments/dev.tfvars     # 23/25 created, SFN failed (EventBridge permission)
+# Fixed: Added events:* permissions to SFN role for managed rules
+terraform apply -var-file=environments/dev.tfvars     # 24/25, Lambda failed (OCI manifest unsupported)
+# Fixed: Rebuilt with --provenance=false
+terraform apply -var-file=environments/dev.tfvars     # 25/25 Apply complete!
+docker build --provenance=false -f Dockerfile.lambda  # Built Lambda image
+docker build --provenance=false -f Dockerfile.processing  # Built Processing image
+docker push <ecr>/spanishgas-dev-lambda:latest        # Pushed
+docker push <ecr>/spanishgas-dev-processing:latest    # Pushed
+git commit                                            # 00ffbff — IAM fix + TF lock file
+```
 
 ---
 
@@ -242,6 +345,22 @@ SKIPPED: tests/test_models.py::TestModelDefinitions::test_xgboost_included_when_
 - [x] Write 9 missing test files (DONE session 4 — lambda, manifest, s3_io, artifacts, drift, data_quality, alerts, streamlit, e2e)
 - [x] Run full lint + test suite (DONE session 4 — 93 passed, ruff clean)
 - [x] Git commit all phases (DONE session 4 — be178d2)
+- [x] Deploy infrastructure to AWS via Terraform (DONE session 5 — 25/25 resources)
+- [x] Build & push Docker images to ECR (DONE session 5 — both Lambda + Processing)
+- [x] Update .env with real ARNs from terraform output (DONE session 5)
+- [x] Fix SFN IAM policy for EventBridge managed rules (DONE session 5 — 00ffbff)
+- [x] Set alert_email in dev.tfvars (DONE session 6 — rawad.yared@student.ie.edu)
+- [x] Set up GitHub OIDC for CI/CD (DONE session 6 — github_oidc Terraform module)
+- [x] Expand E2E tests (DONE session 6 — 1 to 22 tests)
+- [x] Register pytest.mark.slow (DONE session 6)
+- [x] Add Streamlit auto-deployment (DONE session 6 — Dockerfile, ECS, ALB, networking, ECR, deploy.yml)
+- [x] Add Overview + Recommendations pages (DONE session 6)
+- [x] Add Streamlit page render tests (DONE session 6 — 8 tests)
+- [x] Add env var config for Streamlit (DONE session 6 — DATA_SOURCE, S3_BUCKET, AWS_REGION, DYNAMODB_MANIFEST_TABLE)
+- [x] Revamp README (DONE session 6 — 701 lines, full architecture diagrams)
+- [ ] Wait for SageMaker training job quota approval
+- [ ] Upload raw data to s3://spanishgas-data-dev/raw/
+- [ ] Open PR: feature/aws-mlops-pipeline -> main
 
 ---
 
