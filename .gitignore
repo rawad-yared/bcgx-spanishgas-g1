@@ -22,3 +22,18 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Environment
+.env
+
+# Data (raw + generated layers)
+/data/
+*.parquet
+
+# Terraform
+.terraform/
+terraform.tfstate*
+*.tfplan
+
+# Docker
+*.tar.gz

@@ -1,0 +1,92 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-1
+  PROJECT_NAME: spanishgas
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy-infra:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7"
+
+      - name: Terraform Init
+        working-directory: infra/terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: infra/terraform
+        run: terraform plan -var-file=environments/prod.tfvars -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve tfplan
+
+  deploy-containers:
+    needs: deploy-infra
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Lambda image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPO_LAMBDA: ${{ env.PROJECT_NAME }}-lambda
+        run: |
+          docker build -f Dockerfile.lambda -t $ECR_REGISTRY/$ECR_REPO_LAMBDA:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_LAMBDA:latest .
+          docker push $ECR_REGISTRY/$ECR_REPO_LAMBDA --all-tags
+
+      - name: Build and push Processing image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPO_PROCESSING: ${{ env.PROJECT_NAME }}-processing
+        run: |
+          docker build -f Dockerfile.processing -t $ECR_REGISTRY/$ECR_REPO_PROCESSING:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_PROCESSING:latest .
+          docker push $ECR_REGISTRY/$ECR_REPO_PROCESSING --all-tags
+
+      - name: Update Lambda function
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPO_LAMBDA: ${{ env.PROJECT_NAME }}-lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ env.PROJECT_NAME }}-pipeline-trigger \
+            --image-uri $ECR_REGISTRY/$ECR_REPO_LAMBDA:${{ github.sha }}

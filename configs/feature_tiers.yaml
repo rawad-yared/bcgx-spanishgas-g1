@@ -1,0 +1,122 @@
+# Feature tier definitions and experiment ladder
+# Aligned with notebook 02_modeling.ipynb experiment definitions
+
+feature_tiers:
+  tier_1a_lifecycle:
+    - months_to_renewal
+    - tenure_months
+    - renewal_bucket
+    - contract_term_months
+    - has_active_contract
+
+  tier_mp_core:
+    - avg_elec_consumption_kwh
+    - avg_gas_consumption_kwh
+    - avg_elec_price_eur_kwh
+    - avg_gas_price_eur_kwh
+    - provincial_elec_cost_eur_kwh
+    - provincial_gas_cost_eur_kwh
+    - price_vs_benchmark_delta
+    - is_dual_fuel
+
+  tier_mp_risk:
+    - elec_consumption_volatility
+    - gas_consumption_volatility
+    - elec_price_trend
+    - gas_price_trend
+    - elec_margin_stability
+    - gas_margin_stability
+    - total_margin_avg
+
+  tier_2a_behavioral:
+    - interaction_count
+    - days_since_last_interaction
+    - has_complaint
+    - complaint_count
+    - has_billing_issue
+    - intent_to_cancel
+    - severity_score
+
+  tier_2b_sentiment:
+    - sentiment_label
+    - has_negative_sentiment
+    - avg_sentiment_score
+
+  tier_3_compound:
+    - renewal_x_complaint
+    - high_risk_x_negative_sentiment
+    - tenure_x_interaction_intensity
+
+  tier_1b_interaction_strings:
+    - lifecycle_string
+    - market_string
+    - behavioral_string
+
+experiments:
+  E0_baseline:
+    features:
+      - tier_1a_lifecycle
+    description: "Lifecycle features only"
+
+  E1_lifecycle_market:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+    description: "Lifecycle + market core"
+
+  E2_add_risk:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+    description: "Lifecycle + market core + risk"
+
+  E3_add_behavioral:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+    description: "Add behavioral features"
+
+  E4_add_sentiment:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+      - tier_2b_sentiment
+    description: "Add sentiment features"
+
+  E5_full:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+      - tier_2b_sentiment
+      - tier_3_compound
+    description: "Full feature set (champion)"
+
+  E6_with_strings:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+      - tier_2b_sentiment
+      - tier_3_compound
+      - tier_1b_interaction_strings
+    description: "Full + interaction strings (for linear models)"
+
+  E7_market_only:
+    features:
+      - tier_mp_core
+      - tier_mp_risk
+    description: "Market features only (ablation)"
+
+  E8_behavioral_only:
+    features:
+      - tier_2a_behavioral
+      - tier_2b_sentiment
+    description: "Behavioral features only (ablation)"

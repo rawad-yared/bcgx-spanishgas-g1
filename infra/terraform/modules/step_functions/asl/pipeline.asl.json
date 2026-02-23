@@ -1,0 +1,215 @@
+{
+  "Comment": "SpanishGas MLOps Pipeline: Bronze -> Silver -> Gold -> Train/Score -> Drift -> UpdateManifest",
+  "StartAt": "BronzeETL",
+  "States": {
+    "BronzeETL": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createProcessingJob.sync",
+      "Parameters": {
+        "ProcessingJobName.$": "States.Format('bronze-{}', $.run_id)",
+        "RoleArn": "${sagemaker_role_arn}",
+        "AppSpecification": {
+          "ImageUri": "${processing_image_uri}",
+          "ContainerEntrypoint": ["python", "-m", "src.pipelines.steps.bronze_step"]
+        },
+        "ProcessingResources": {
+          "ClusterConfig": {
+            "InstanceCount": 1,
+            "InstanceType": "${processing_instance}",
+            "VolumeSizeInGB": 30
+          }
+        },
+        "Environment": {
+          "S3_BUCKET": "${s3_bucket}",
+          "FILE_KEY.$": "$.file_key",
+          "RUN_ID.$": "$.run_id"
+        }
+      },
+      "ResultPath": "$.bronze_result",
+      "Next": "SilverETL"
+    },
+    "SilverETL": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createProcessingJob.sync",
+      "Parameters": {
+        "ProcessingJobName.$": "States.Format('silver-{}', $.run_id)",
+        "RoleArn": "${sagemaker_role_arn}",
+        "AppSpecification": {
+          "ImageUri": "${processing_image_uri}",
+          "ContainerEntrypoint": ["python", "-m", "src.pipelines.steps.silver_step"]
+        },
+        "ProcessingResources": {
+          "ClusterConfig": {
+            "InstanceCount": 1,
+            "InstanceType": "${processing_instance}",
+            "VolumeSizeInGB": 30
+          }
+        },
+        "Environment": {
+          "S3_BUCKET": "${s3_bucket}",
+          "RUN_ID.$": "$.run_id"
+        }
+      },
+      "ResultPath": "$.silver_result",
+      "Next": "GoldETL"
+    },
+    "GoldETL": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createProcessingJob.sync",
+      "Parameters": {
+        "ProcessingJobName.$": "States.Format('gold-{}', $.run_id)",
+        "RoleArn": "${sagemaker_role_arn}",
+        "AppSpecification": {
+          "ImageUri": "${processing_image_uri}",
+          "ContainerEntrypoint": ["python", "-m", "src.pipelines.steps.gold_step"]
+        },
+        "ProcessingResources": {
+          "ClusterConfig": {
+            "InstanceCount": 1,
+            "InstanceType": "${processing_instance}",
+            "VolumeSizeInGB": 30
+          }
+        },
+        "Environment": {
+          "S3_BUCKET": "${s3_bucket}",
+          "RUN_ID.$": "$.run_id"
+        }
+      },
+      "ResultPath": "$.gold_result",
+      "Next": "TrainOrScore"
+    },
+    "TrainOrScore": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.mode",
+          "StringEquals": "train",
+          "Next": "TrainModel"
+        }
+      ],
+      "Default": "ScoreCustomers"
+    },
+    "TrainModel": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createProcessingJob.sync",
+      "Parameters": {
+        "ProcessingJobName.$": "States.Format('train-{}', $.run_id)",
+        "RoleArn": "${sagemaker_role_arn}",
+        "AppSpecification": {
+          "ImageUri": "${processing_image_uri}",
+          "ContainerEntrypoint": ["python", "-m", "src.pipelines.steps.train_step"]
+        },
+        "ProcessingResources": {
+          "ClusterConfig": {
+            "InstanceCount": 1,
+            "InstanceType": "${training_instance}",
+            "VolumeSizeInGB": 30
+          }
+        },
+        "Environment": {
+          "S3_BUCKET": "${s3_bucket}",
+          "RUN_ID.$": "$.run_id"
+        }
+      },
+      "ResultPath": "$.train_result",
+      "Next": "EvaluateModel"
+    },
+    "EvaluateModel": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createProcessingJob.sync",
+      "Parameters": {
+        "ProcessingJobName.$": "States.Format('evaluate-{}', $.run_id)",
+        "RoleArn": "${sagemaker_role_arn}",
+        "AppSpecification": {
+          "ImageUri": "${processing_image_uri}",
+          "ContainerEntrypoint": ["python", "-m", "src.pipelines.steps.evaluate_step"]
+        },
+        "ProcessingResources": {
+          "ClusterConfig": {
+            "InstanceCount": 1,
+            "InstanceType": "${processing_instance}",
+            "VolumeSizeInGB": 30
+          }
+        },
+        "Environment": {
+          "S3_BUCKET": "${s3_bucket}",
+          "RUN_ID.$": "$.run_id"
+        }
+      },
+      "ResultPath": "$.evaluate_result",
+      "Next": "ScoreCustomers"
+    },
+    "ScoreCustomers": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createProcessingJob.sync",
+      "Parameters": {
+        "ProcessingJobName.$": "States.Format('score-{}', $.run_id)",
+        "RoleArn": "${sagemaker_role_arn}",
+        "AppSpecification": {
+          "ImageUri": "${processing_image_uri}",
+          "ContainerEntrypoint": ["python", "-m", "src.pipelines.steps.score_step"]
+        },
+        "ProcessingResources": {
+          "ClusterConfig": {
+            "InstanceCount": 1,
+            "InstanceType": "${processing_instance}",
+            "VolumeSizeInGB": 30
+          }
+        },
+        "Environment": {
+          "S3_BUCKET": "${s3_bucket}",
+          "RUN_ID.$": "$.run_id"
+        }
+      },
+      "ResultPath": "$.score_result",
+      "Next": "DriftCheck"
+    },
+    "DriftCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sagemaker:createProcessingJob.sync",
+      "Parameters": {
+        "ProcessingJobName.$": "States.Format('drift-{}', $.run_id)",
+        "RoleArn": "${sagemaker_role_arn}",
+        "AppSpecification": {
+          "ImageUri": "${processing_image_uri}",
+          "ContainerEntrypoint": ["python", "-m", "src.pipelines.steps.drift_step"]
+        },
+        "ProcessingResources": {
+          "ClusterConfig": {
+            "InstanceCount": 1,
+            "InstanceType": "${processing_instance}",
+            "VolumeSizeInGB": 30
+          }
+        },
+        "Environment": {
+          "S3_BUCKET": "${s3_bucket}",
+          "RUN_ID.$": "$.run_id",
+          "SNS_TOPIC_ARN": "${sns_topic_arn}"
+        }
+      },
+      "ResultPath": "$.drift_result",
+      "Next": "UpdateManifest"
+    },
+    "UpdateManifest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${dynamodb_table}",
+        "Key": {
+          "file_key": { "S.$": "$.file_key" }
+        },
+        "UpdateExpression": "SET #s = :s, completed_at = :t",
+        "ExpressionAttributeNames": { "#s": "status" },
+        "ExpressionAttributeValues": {
+          ":s": { "S": "completed" },
+          ":t": { "S.$": "$$.State.EnteredTime" }
+        }
+      },
+      "ResultPath": "$.manifest_result",
+      "Next": "PipelineComplete"
+    },
+    "PipelineComplete": {
+      "Type": "Succeed"
+    }
+  }
+}
