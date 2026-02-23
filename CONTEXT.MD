@@ -1,10 +1,10 @@
 # Context Dump
 
-## Session Info (updated 2026-02-23 session 3)
+## Session Info (updated 2026-02-23 session 4)
 - **Timestamp:** 2026-02-23
 - **Branch:** `feature/aws-mlops-pipeline`
-- **Latest commit:** `372d414` ("Add notebooks folder and document repo structure")
-- **Nothing has been committed from this implementation work yet.** All changes are unstaged/untracked.
+- **Latest commit:** `be178d2` ("Implement full AWS MLOps pipeline: Phases 0-7")
+- **All phases committed.** 106 files, 26,884 insertions. Clean working tree.
 
 ---
 
@@ -21,13 +21,13 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | 1D: Training Set Builder | DONE | src/data/build_training_set.py + tests |
 | 1E: Models | DONE | src/models/{preprocessing,churn_model,scorer}.py + tests |
 | 1F: Recommendations | DONE | src/reco/{schema,engine}.py + tests |
-| 1G: E2E Integration Test | NOT STARTED | tests/test_pipeline_e2e.py |
-| 2: Terraform IaC | NOT STARTED | ~25 files under infra/terraform/ |
+| 1G: E2E Integration Test | DONE | tests/test_pipeline_e2e.py (bronze smoke test) |
+| 2: Terraform IaC | DONE | 32 files under infra/terraform/ (8 modules) |
 | 3: Lambda + Step Functions + Docker | DONE | All step files, run.py, Dockerfiles written |
 | 4: SageMaker Training + Registry | DONE | train_step.py, evaluate_step.py, registry.py, artifacts.py all written |
 | 5: Monitoring + Drift | DONE | drift.py, data_quality.py, alerts.py, reference_store.py, drift_step.py all written |
-| 6: Streamlit Dashboard | MOSTLY DONE | app.py + 3/4 pages + data_loader.py written; missing pipeline_status.py |
-| 7: CI/CD + Ops | NOT STARTED | 3 GitHub Actions workflows still needed |
+| 6: Streamlit Dashboard | DONE | app.py + 4/4 pages + data_loader.py (pipeline_status.py added session 4) |
+| 7: CI/CD + Ops | DONE | ci.yml, deploy.yml, retrain.yml (3 GitHub Actions workflows) |
 
 ---
 
@@ -95,24 +95,53 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 - `src/monitoring/reference_store.py` - NEW: Save/load reference distributions as JSON to S3
 - `src/pipelines/steps/drift_step.py` - NEW: Drift detection Processing Job entry point
 
-### Phase 6 (MOSTLY DONE — session 3):
+### Phase 6 (DONE — session 3+4):
 - `src/serving/ui/app.py` - NEW: Main Streamlit entry with sidebar navigation
-- `src/serving/ui/data_loader.py` - NEW: Cached parquet/JSON loading (local or S3)
+- `src/serving/ui/data_loader.py` - NEW: Cached parquet/JSON loading (local or S3); updated session 4 with load_pipeline_runs
 - `src/serving/ui/pages/__init__.py` - NEW: Package init
 - `src/serving/ui/pages/model_performance.py` - NEW: PR-AUC, confusion matrix, metrics
 - `src/serving/ui/pages/drift_monitor.py` - NEW: Feature drift table + KS bar chart
 - `src/serving/ui/pages/customer_risk.py` - NEW: Risk tier pie chart, filterable customer table
-- `src/serving/ui/pages/pipeline_status.py` - MISSING (still needs to be written)
+- `src/serving/ui/pages/pipeline_status.py` - NEW (session 4): Pipeline run history, status metrics, filterable table
 
-### Tests (from prior sessions, not yet updated for new modules):
+### Phase 7 (DONE — session 4):
+- `.github/workflows/ci.yml` - NEW: Lint + test on push/PR, coverage upload
+- `.github/workflows/deploy.yml` - NEW: Terraform apply + ECR build/push + Lambda update
+- `.github/workflows/retrain.yml` - NEW: Manual/weekly Step Functions trigger with status monitoring
+
+### Phase 2 (DONE — session 4):
+- `infra/terraform/main.tf` - NEW: Provider, module orchestration
+- `infra/terraform/backend.tf` - NEW: S3 backend for remote state
+- `infra/terraform/variables.tf` - NEW: project_name, environment, region, instance types
+- `infra/terraform/outputs.tf` - NEW: Bucket, Lambda ARN, SFN ARN, ECR URIs, SNS
+- `infra/terraform/environments/{dev,staging,prod}.tfvars` - NEW: Per-environment configs
+- `infra/terraform/modules/s3/` - NEW: Single bucket, versioning, encryption, lifecycle
+- `infra/terraform/modules/dynamodb/` - NEW: Manifest table, PAY_PER_REQUEST
+- `infra/terraform/modules/iam/` - NEW: Lambda, SFN, SageMaker roles + policies
+- `infra/terraform/modules/lambda/` - NEW: ECR-based function, S3 notification trigger
+- `infra/terraform/modules/step_functions/` - NEW: State machine + ASL definition
+- `infra/terraform/modules/step_functions/asl/pipeline.asl.json` - NEW: Full pipeline workflow
+- `infra/terraform/modules/sagemaker/` - NEW: Model Package Group
+- `infra/terraform/modules/monitoring/` - NEW: SNS topic, CloudWatch alarms
+- `infra/terraform/modules/ecr/` - NEW: Lambda + Processing repos with lifecycle
+
+### Tests (ALL DONE — session 4, 93 passing + 1 skipped):
 - `tests/test_settings.py` - 5 tests
 - `tests/test_ingest.py` - 6 tests
 - `tests/test_silver.py` - 8 tests
 - `tests/test_build_features.py` - 9 tests
 - `tests/test_build_training_set.py` - 5 tests
-- `tests/test_models.py` - 7 tests (xgboost test FIXED with pytest.importorskip)
+- `tests/test_models.py` - 7 tests (xgboost test uses pytest.importorskip)
 - `tests/test_reco.py` - 7 tests
-- MISSING: test_lambda_handler, test_manifest, test_s3_io, test_artifacts, test_drift, test_data_quality, test_alerts, test_streamlit_data_loader, test_pipeline_e2e
+- `tests/test_lambda_handler.py` - 3 tests (moto: DynamoDB + SFN mocks)
+- `tests/test_manifest.py` - 5 tests (moto: DynamoDB mocks)
+- `tests/test_s3_io.py` - 5 tests (moto: S3 parquet/json/csv round-trips)
+- `tests/test_artifacts.py` - 2 tests (moto: save/load sklearn pipeline to S3)
+- `tests/test_drift.py` - 10 tests (KS drift detection, numpy.bool_ comparison via ==)
+- `tests/test_data_quality.py` - 7 tests (null rates, duplicates, schema, layer thresholds)
+- `tests/test_alerts.py` - 5 tests (moto: SNS + CloudWatch)
+- `tests/test_streamlit_data_loader.py` - 8 tests (local file loading, monkeypatched st.cache_data)
+- `tests/test_pipeline_e2e.py` - 1 test (bronze smoke test, @pytest.mark.slow)
 
 ---
 
@@ -131,6 +160,15 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | Margin excluded from training features | EDA showed not churn-predictive; kept only for expected_monthly_loss |
 | Gas conversion: 1 m3 = 11 kWh | Standard Spanish gas conversion factor |
 | Risk tiers: Low<40%, Medium 40-60%, High 60-80%, Critical>80% | Per recommendation policy doc |
+| Terraform modular structure (8 modules) | Separation of concerns, reusable per environment |
+| ASL uses SageMaker Processing for all steps (not Training API) | Uniform container runtime, simpler IAM |
+| ECR lifecycle: keep last 10 images | Prevent unbounded image accumulation |
+| S3 lifecycle: bronze→STANDARD_IA at 90d, scored expires at 365d | Cost optimization for historical data |
+| Deploy workflow uses OIDC role assumption | Avoids long-lived credentials in GitHub secrets |
+| Retrain workflow: weekly Monday 06:00 UTC + manual trigger | Regular retraining cadence with on-demand capability |
+| Moto tests use `with mock_aws():` context managers per test | Avoids state leaking between tests (no shared fixtures) |
+| Drift test assertions use `==` not `is` for booleans | scipy returns numpy.bool_ which fails identity check |
+| .gitignore uses `/data/` (leading slash) | Only ignores top-level data dir, not src/data/ |
 
 ---
 
@@ -142,56 +180,47 @@ Fixed in session 3 — merged into single dict with all three keys (`:s`, `:t`, 
 ### FIXED: xgboost test
 Fixed in session 3 — split into two tests: `test_returns_models` (checks logistic_regression + random_forest only) and `test_xgboost_included_when_installed` (uses `pytest.importorskip("xgboost")`).
 
+### FIXED: .gitignore `data/` pattern too broad (session 4)
+Pattern `data/` was ignoring `src/data/` as well. Changed to `/data/` to only match root-level data directory.
+
+### FIXED: numpy.bool_ identity comparison in drift tests (session 4)
+`assert result["drifted"] is True` fails because scipy returns `numpy.bool_`, not Python `bool`. Changed to `== True`.
+
 ---
 
 ## Exact Next Steps (ordered)
 
-1. **Write `src/serving/ui/pages/pipeline_status.py`** - Last missing Streamlit page
-2. **Write Phase 7 CI/CD files**:
-   - `.github/workflows/ci.yml`
-   - `.github/workflows/deploy.yml`
-   - `.github/workflows/retrain.yml`
-3. **Write all missing test files**:
-   - `tests/test_lambda_handler.py` (moto mocks)
-   - `tests/test_manifest.py` (moto mocks)
-   - `tests/test_s3_io.py` (moto mocks)
-   - `tests/test_artifacts.py` (moto mocks)
-   - `tests/test_drift.py`
-   - `tests/test_data_quality.py`
-   - `tests/test_alerts.py` (moto mocks)
-   - `tests/test_streamlit_data_loader.py`
-   - `tests/test_pipeline_e2e.py` (Phase 1G)
-4. **Write Phase 2 Terraform Infrastructure** (~25 files):
-   - `infra/terraform/main.tf`, `variables.tf`, `outputs.tf`
-   - `infra/terraform/environments/{dev,staging,prod}.tfvars`
-   - Modules: s3, dynamodb, iam, lambda, step_functions (+ asl/pipeline.asl.json), sagemaker, monitoring
-5. **Run `ruff check --fix`** - Full lint pass
-6. **Run `pytest`** - Full test pass
-7. **Git commit all work** on `feature/aws-mlops-pipeline`
+All implementation phases are complete. Potential follow-up work:
+
+1. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
+2. **Expand E2E test** — test_pipeline_e2e.py currently only tests bronze; could extend through gold/train/score
+3. **Terraform validate** — run `terraform init && terraform validate` in infra/terraform/
+4. **Docker build test** — build both Dockerfile.lambda and Dockerfile.processing locally
+5. **Streamlit smoke test** — run `streamlit run src/serving/ui/app.py` with sample data
+6. **Register pytest.mark.slow** — add `markers = ["slow"]` to pyproject.toml to suppress warning
+7. **Wire up alert_email** — set actual email in tfvars for SNS subscription
 
 ---
 
-## Commands Run + Key Outputs (this session)
+## Commands Run + Key Outputs (session 4)
 
 ```
-find src -name "*.py" | sort          # Listed 21 Python source files
-find tests -name "*.py" | sort        # Listed 8 test files
-ls -la infra/ .github/ src/serving/   # Dirs exist but mostly empty
-git rev-parse --abbrev-ref HEAD       # feature/aws-mlops-pipeline
-git rev-parse --short HEAD            # 372d414
-git status --short                    # All changes unstaged/untracked (see Files Changed)
-python -m pytest tests/ --tb=short -q # 46 passed, 1 FAILED (test_models xgboost key)
+ruff check src/ tests/                # 33 errors -> all auto-fixed with --fix
+ruff check src/ tests/                # All checks passed!
+python -m pytest tests/ -v --tb=short # 93 passed, 1 skipped (xgboost conditional)
+git add <106 files>
+git commit                            # be178d2 — 106 files changed, 26,884 insertions
+git status                            # clean working tree
 ```
 
 ---
 
-## Tests Run + Results
+## Tests Run + Results (session 4)
 
 ```
-46 passed, 1 failed
-FAILED: tests/test_models.py::TestModelDefinitions::test_returns_models
-  AssertionError: assert 'xgboost' in models
-  (xgboost may not be installed in venv)
+93 passed, 1 skipped
+SKIPPED: tests/test_models.py::TestModelDefinitions::test_xgboost_included_when_installed
+  (xgboost not installed in venv — pytest.importorskip)
 ```
 
 ---
@@ -207,12 +236,12 @@ FAILED: tests/test_models.py::TestModelDefinitions::test_returns_models
 - [x] Write src/pipelines/steps/drift_step.py (DONE session 3)
 - [x] Write Dockerfile.lambda + Dockerfile.processing (DONE session 3)
 - [x] Write 5/6 Streamlit UI files (DONE session 3 — missing pipeline_status.py)
-- [ ] Write src/serving/ui/pages/pipeline_status.py
-- [ ] Write 3 GitHub Actions workflows (ci, deploy, retrain)
-- [ ] Write ~25 Terraform files
-- [ ] Write all missing tests (lambda, manifest, s3_io, artifacts, drift, data_quality, alerts, streamlit, e2e)
-- [ ] Run full lint + test suite
-- [ ] Git commit all phases
+- [x] Write src/serving/ui/pages/pipeline_status.py (DONE session 4)
+- [x] Write 3 GitHub Actions workflows (DONE session 4 — ci, deploy, retrain)
+- [x] Write 32 Terraform files across 8 modules (DONE session 4)
+- [x] Write 9 missing test files (DONE session 4 — lambda, manifest, s3_io, artifacts, drift, data_quality, alerts, streamlit, e2e)
+- [x] Run full lint + test suite (DONE session 4 — 93 passed, ruff clean)
+- [x] Git commit all phases (DONE session 4 — be178d2)
 
 ---
 

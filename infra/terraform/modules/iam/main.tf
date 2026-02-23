@@ -79,6 +79,17 @@ resource "aws_iam_role_policy" "sfn" {
         Resource = "*"
       },
       {
+        Effect = "Allow"
+        Action = [
+          "events:PutRule",
+          "events:PutTargets",
+          "events:DescribeRule",
+          "events:DeleteRule",
+          "events:RemoveTargets",
+        ]
+        Resource = "arn:aws:events:*:*:rule/StepFunctionsGetEventsForSageMakerProcessingJobsRule"
+      },
+      {
         Effect   = "Allow"
         Action   = ["iam:PassRole"]
         Resource = aws_iam_role.sagemaker.arn
