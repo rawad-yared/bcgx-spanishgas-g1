@@ -226,9 +226,14 @@ def enrich_interactions_sentiment(df: pd.DataFrame, batch_size: int = 32) -> pd.
     rows = [_scores_to_row(s) for s in all_scores]
     scores_df = pd.DataFrame(rows, index=out.loc[mask].index)
 
+    # Initialize columns with correct dtypes to avoid Arrow/numpy conflicts
+    for col in ["sentiment_neg", "sentiment_neu", "sentiment_pos"]:
+        out[col] = np.nan  # float64
+    out["sentiment_label"] = pd.Series([None] * len(out), dtype="object")
+
+    # Assign scores back into masked rows
     for col in scores_df.columns:
-        out[col] = np.nan
-        out.loc[mask, col] = scores_df[col]
+        out.loc[mask, col] = scores_df[col].values
 
     elapsed = time.time() - t0
     logger.info("Sentiment analysis complete in %.1fs", elapsed)
