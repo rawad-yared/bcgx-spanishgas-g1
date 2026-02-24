@@ -142,7 +142,7 @@ def enrich_interactions_intent(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
     if "interaction_summary" in out.columns:
-        out["customer_intent"] = out["interaction_summary"].map(classify_intent).astype("category")
+        out["customer_intent"] = out["interaction_summary"].map(classify_intent)
     else:
         logger.warning("No 'interaction_summary' column — skipping intent classification")
 
