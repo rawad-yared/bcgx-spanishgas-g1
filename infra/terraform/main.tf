@@ -84,8 +84,9 @@ module "step_functions" {
   s3_bucket_name       = module.s3.bucket_name
   processing_image_uri = "${module.ecr.processing_repo_url}:latest"
   sagemaker_role_arn   = module.iam.sagemaker_role_arn
-  processing_instance  = var.processing_instance_type
-  training_instance    = var.training_instance_type
+  processing_instance       = var.processing_instance_type
+  processing_instance_large = var.processing_instance_type_large
+  training_instance         = var.training_instance_type
   dynamodb_table_name  = module.dynamodb.table_name
   sns_topic_arn        = module.monitoring.sns_topic_arn
 }

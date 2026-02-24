@@ -17,7 +17,7 @@ from src.pipelines.s3_io import read_parquet, write_json
 logger = logging.getLogger(__name__)
 
 
-def _load_feature_list(config_path: str = "configs/feature_tiers.yaml", experiment: str = "E5") -> list[str]:
+def _load_feature_list(config_path: str = "configs/feature_tiers.yaml", experiment: str = "E5_full") -> list[str]:
     """Load feature list for the given experiment from config YAML."""
     path = Path(config_path)
     if not path.exists():
@@ -28,9 +28,9 @@ def _load_feature_list(config_path: str = "configs/feature_tiers.yaml", experime
 
     experiments = config.get("experiments", {})
     exp_def = experiments.get(experiment, {})
-    tier_names = exp_def.get("tiers", [])
+    tier_names = exp_def.get("features", [])
 
-    tiers = config.get("tiers", {})
+    tiers = config.get("feature_tiers", {})
     features: list[str] = []
     for tier_name in tier_names:
         features.extend(tiers.get(tier_name, []))
@@ -43,7 +43,7 @@ def run_train_step(
     models_prefix: str = "models/",
     region: str = "eu-west-1",
     model_name: str = "xgboost",
-    experiment: str = "E5",
+    experiment: str = "E5_full",
     target_recall: float = 0.70,
 ) -> dict:
     """Load gold, train model, save artifacts to S3."""
@@ -56,6 +56,13 @@ def run_train_step(
     logger.info("Feature list (%s): %d features", experiment, len(features))
 
     X, y, cids = build_model_matrix(gold, features)
+    actual_features = X.columns.tolist()
+    missing_features = [f for f in features if f not in actual_features]
+    if missing_features:
+        logger.warning("Features not in gold master (skipped): %s", missing_features)
+    logger.info("Requested %d features, %d available, %d missing",
+                len(features), len(actual_features), len(missing_features))
+
     X_train, X_test, y_train, y_test = create_train_test_split(X, y)
     logger.info("Train: %d, Test: %d, Churn rate: %.3f", len(X_train), len(X_test), float(y.mean()))
 
@@ -89,7 +96,9 @@ def run_train_step(
         "metrics": metrics,
         "n_train": len(X_train),
         "n_test": len(X_test),
-        "features": features,
+        "features": actual_features,
+        "requested_features": features,
+        "missing_features": missing_features,
     }
     write_json(eval_result, bucket, f"{run_key}evaluation.json", region)
 
@@ -101,14 +110,17 @@ def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Model training step")
-    parser.add_argument("--bucket", required=True)
+    parser.add_argument("--bucket", default=os.environ.get("S3_BUCKET", ""))
     parser.add_argument("--gold-prefix", default="gold/")
     parser.add_argument("--models-prefix", default="models/")
-    parser.add_argument("--region", default="eu-west-1")
+    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "eu-west-1"))
     parser.add_argument("--model-name", default="xgboost")
-    parser.add_argument("--experiment", default="E5")
+    parser.add_argument("--experiment", default="E5_full")
     parser.add_argument("--target-recall", type=float, default=0.70)
     args = parser.parse_args()
+
+    if not args.bucket:
+        parser.error("--bucket is required (or set S3_BUCKET env var)")
 
     run_train_step(
         args.bucket, args.gold_prefix, args.models_prefix,

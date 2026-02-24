@@ -42,11 +42,14 @@ def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Silver ETL step")
-    parser.add_argument("--bucket", required=True)
+    parser.add_argument("--bucket", default=os.environ.get("S3_BUCKET", ""))
     parser.add_argument("--bronze-prefix", default="bronze/")
     parser.add_argument("--silver-prefix", default="silver/")
-    parser.add_argument("--region", default="eu-west-1")
+    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "eu-west-1"))
     args = parser.parse_args()
+
+    if not args.bucket:
+        parser.error("--bucket is required (or set S3_BUCKET env var)")
 
     run_silver_step(args.bucket, args.bronze_prefix, args.silver_prefix, args.region)
 

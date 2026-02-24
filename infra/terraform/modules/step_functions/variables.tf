@@ -27,6 +27,11 @@ variable "processing_instance" {
   default = "ml.m5.xlarge"
 }
 
+variable "processing_instance_large" {
+  type    = string
+  default = "ml.m5.xlarge"
+}
+
 variable "training_instance" {
   type    = string
   default = "ml.m5.xlarge"

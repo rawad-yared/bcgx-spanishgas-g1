@@ -103,6 +103,24 @@ def load_pipeline_runs(source: str | None = None, path: str = "data/monitoring/p
 
 
 @st.cache_data(ttl=300)
+def load_gold_data(source: str | None = None, path: str = "data/gold/gold_master.parquet", **kwargs) -> pd.DataFrame:
+    """Load gold master data for EDA exploration."""
+    source = source or DATA_SOURCE
+    if source == "s3":
+        from src.pipelines.s3_io import read_parquet
+
+        bucket = kwargs.get("bucket", S3_BUCKET)
+        key = kwargs.get("key", "gold/gold_master.parquet")
+        region = kwargs.get("region", AWS_REGION)
+        return read_parquet(bucket, key, region)
+
+    p = Path(path)
+    if p.exists():
+        return pd.read_parquet(p)
+    return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
 def load_recommendations(source: str | None = None, path: str = "data/scored/recommendations.parquet", **kwargs) -> pd.DataFrame:
     """Load recommendation results."""
     source = source or DATA_SOURCE

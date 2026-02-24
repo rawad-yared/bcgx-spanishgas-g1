@@ -83,3 +83,47 @@ class TestLoadPipelineRuns:
 
         result = load_pipeline_runs(source="local", path="/nonexistent/runs.json")
         assert result == []
+
+
+class TestLoadGoldData:
+    def test_load_from_local_parquet(self, tmp_path):
+        from src.serving.ui.data_loader import load_gold_data
+
+        df = pd.DataFrame({"customer_id": ["C1"], "churn": [1], "segment": ["SME"]})
+        path = tmp_path / "gold.parquet"
+        df.to_parquet(path, index=False)
+        result = load_gold_data(source="local", path=str(path))
+        assert len(result) == 1
+        assert "segment" in result.columns
+
+    def test_missing_file_returns_empty(self):
+        from src.serving.ui.data_loader import load_gold_data
+
+        result = load_gold_data(source="local", path="/nonexistent/gold.parquet")
+        assert isinstance(result, pd.DataFrame)
+        assert result.empty
+
+
+class TestLoadRecommendations:
+    def test_load_from_local_parquet(self, tmp_path):
+        from src.serving.ui.data_loader import load_recommendations
+
+        df = pd.DataFrame(
+            {
+                "customer_id": ["C1", "C2"],
+                "risk_score": [0.9, 0.3],
+                "action": ["offer_large", "no_offer"],
+            }
+        )
+        path = tmp_path / "recommendations.parquet"
+        df.to_parquet(path, index=False)
+        result = load_recommendations(source="local", path=str(path))
+        assert len(result) == 2
+        assert "action" in result.columns
+
+    def test_missing_file_returns_empty(self):
+        from src.serving.ui.data_loader import load_recommendations
+
+        result = load_recommendations(source="local", path="/nonexistent/reco.parquet")
+        assert isinstance(result, pd.DataFrame)
+        assert result.empty

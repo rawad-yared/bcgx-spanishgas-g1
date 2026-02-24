@@ -361,6 +361,15 @@ def build_compound_features(
     if "tenure_bucket" in df.columns and "renewal_bucket" in df.columns:
         df["tenure_x_renewal_bucket"] = _safe_cross("tenure_bucket", "renewal_bucket")
 
+    if "sales_channel" in df.columns and "renewal_bucket" in df.columns:
+        df["sales_channel_x_renewal_bucket"] = _safe_cross("sales_channel", "renewal_bucket")
+
+    if "has_interaction" in df.columns and "renewal_bucket" in df.columns:
+        df["has_interaction_x_renewal_bucket"] = _safe_cross("has_interaction", "renewal_bucket")
+
+    if "is_high_competition_province" in df.columns and "customer_intent" in df.columns:
+        df["competition_x_intent"] = _safe_cross("is_high_competition_province", "customer_intent")
+
     # Binary interaction flags
     if "is_within_3m_of_renewal" in df.columns and "has_complaint" in df.columns:
         df["renewal_x_complaint"] = (

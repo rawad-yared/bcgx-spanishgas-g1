@@ -75,6 +75,7 @@ resource "aws_iam_role_policy" "sfn" {
           "sagemaker:DescribeProcessingJob",
           "sagemaker:CreateTrainingJob",
           "sagemaker:DescribeTrainingJob",
+          "sagemaker:AddTags",
         ]
         Resource = "*"
       },
@@ -87,7 +88,10 @@ resource "aws_iam_role_policy" "sfn" {
           "events:DeleteRule",
           "events:RemoveTargets",
         ]
-        Resource = "arn:aws:events:*:*:rule/StepFunctionsGetEventsForSageMakerProcessingJobsRule"
+        Resource = [
+          "arn:aws:events:*:*:rule/StepFunctionsGetEventsForSageMakerProcessingJobsRule",
+          "arn:aws:events:*:*:rule/StepFunctionsGetEventsForSageMakerTrainingJobsRule",
+        ]
       },
       {
         Effect   = "Allow"

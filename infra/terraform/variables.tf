@@ -40,6 +40,12 @@ variable "processing_instance_type" {
   default     = "ml.m5.xlarge"
 }
 
+variable "processing_instance_type_large" {
+  description = "SageMaker Processing instance type for memory-heavy steps (e.g. BronzeETL)"
+  type        = string
+  default     = "ml.m5.xlarge"
+}
+
 variable "training_instance_type" {
   description = "SageMaker Training instance type"
   type        = string

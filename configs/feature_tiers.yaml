@@ -1,24 +1,50 @@
 # Feature tier definitions and experiment ladder
-# Aligned with notebook 02_modeling.ipynb experiment definitions
+# Aligned with build_features.py actual output columns (session 10 fix)
+#
+# NOTE: avg_monthly_margin and total_margin_2024 are intentionally EXCLUDED
+# from all training tiers — EDA confirmed margin level is not predictive of
+# churn (median €6.96 churners vs €7.01 non-churners). They remain in the
+# gold master for post-prediction prioritisation:
+#   expected_monthly_loss = P(churn) × avg_monthly_margin
 
 feature_tiers:
+  # ── TIER 1A — Structural & Lifecycle ─────────────────────────────────────
+  # Source: build_lifecycle_features() + build_market_core_features()
+  # EDA signal: renewal proximity is the #1 churn driver; tenure moderates it.
   tier_1a_lifecycle:
     - months_to_renewal
-    - tenure_months
     - renewal_bucket
-    - contract_term_months
-    - has_active_contract
-
-  tier_mp_core:
-    - avg_elec_consumption_kwh
-    - avg_gas_consumption_kwh
-    - avg_elec_price_eur_kwh
-    - avg_gas_price_eur_kwh
-    - provincial_elec_cost_eur_kwh
-    - provincial_gas_cost_eur_kwh
-    - price_vs_benchmark_delta
+    - is_within_3m_of_renewal
+    - tenure_months
+    - tenure_bucket
+    - is_expired_contract
+    - segment
+    - sales_channel
+    - is_high_competition_province
+    - has_interaction
+    - is_second_residence
     - is_dual_fuel
+    - portfolio_type
+    - is_digital_channel
+    - is_comparison_channel
+    - is_own_website_channel
 
+  # ── TIER MP_CORE — Market & Portfolio: Core Structure ────────────────────
+  # Source: build_market_core_features()
+  # EDA signal: moderate predictors; consumption + channel capture price-sensitivity proxy.
+  tier_mp_core:
+    - avg_monthly_elec_kwh
+    - total_elec_kwh_2024
+    - avg_monthly_gas_m3
+    - total_gas_m3_2024
+    - gas_share_of_revenue
+    - price_update_count
+    - province_avg_elec_cost_2024
+    - province_avg_gas_cost_2024
+
+  # ── TIER MP_RISK — Market & Portfolio: Stability & Risk ──────────────────
+  # Source: build_market_risk_features()
+  # EDA signal: margin stability and price evolution are secondary; noisier than lifecycle.
   tier_mp_risk:
     - elec_consumption_volatility
     - gas_consumption_volatility
@@ -28,48 +54,62 @@ feature_tiers:
     - gas_margin_stability
     - total_margin_avg
 
+  # ── TIER 2A — Behavioral Presence & Intent ───────────────────────────────
+  # Source: build_behavioral_features()
+  # EDA signal: interaction near renewal amplifies churn. Cancellation intent → ~99% churn.
   tier_2a_behavioral:
-    - interaction_count
-    - days_since_last_interaction
-    - has_complaint
-    - complaint_count
-    - has_billing_issue
+    - customer_intent
     - intent_to_cancel
-    - severity_score
+    - has_complaint
+    - last_interaction_days_ago
 
+  # ── TIER 2B — Sentiment Signals ─────────────────────────────────────────
+  # Source: build_sentiment_features()
+  # EDA signal: negative sentiment → near-deterministic churn (~99%). Highest single predictor.
   tier_2b_sentiment:
     - sentiment_label
     - has_negative_sentiment
     - avg_sentiment_score
 
+  # ── TIER 3 — Compound Context Flags (binary, tree-safe) ─────────────────
+  # Source: build_compound_features()
+  # EDA signal: lifecycle × behavioral compounds isolate the highest-risk segments.
   tier_3_compound:
     - renewal_x_complaint
     - high_risk_x_negative_sentiment
-    - tenure_x_interaction_intensity
+    - is_price_sensitive
 
+  # ── TIER 1B — Pre-computed interaction strings (linear models only) ──────
+  # Source: build_compound_features()
+  # Trees learn these splits natively; include only for linear models.
   tier_1b_interaction_strings:
-    - lifecycle_string
-    - market_string
-    - behavioral_string
+    - intent_x_renewal_bucket
+    - intent_x_tenure_bucket
+    - sentiment_x_renewal_bucket
+    - intent_x_sentiment
+    - tenure_x_renewal_bucket
+    - sales_channel_x_renewal_bucket
+    - has_interaction_x_renewal_bucket
+    - competition_x_intent
 
 experiments:
   E0_baseline:
     features:
       - tier_1a_lifecycle
-    description: "Lifecycle features only"
+    description: "Lifecycle features only (15 features)"
 
   E1_lifecycle_market:
     features:
       - tier_1a_lifecycle
       - tier_mp_core
-    description: "Lifecycle + market core"
+    description: "Lifecycle + market core (24 features)"
 
   E2_add_risk:
     features:
       - tier_1a_lifecycle
       - tier_mp_core
       - tier_mp_risk
-    description: "Lifecycle + market core + risk"
+    description: "Lifecycle + market core + risk (31 features)"
 
   E3_add_behavioral:
     features:
@@ -77,7 +117,7 @@ experiments:
       - tier_mp_core
       - tier_mp_risk
       - tier_2a_behavioral
-    description: "Add behavioral features"
+    description: "Add behavioral features (35 features)"
 
   E4_add_sentiment:
     features:
@@ -86,7 +126,7 @@ experiments:
       - tier_mp_risk
       - tier_2a_behavioral
       - tier_2b_sentiment
-    description: "Add sentiment features"
+    description: "Add sentiment features (38 features)"
 
   E5_full:
     features:
@@ -96,7 +136,7 @@ experiments:
       - tier_2a_behavioral
       - tier_2b_sentiment
       - tier_3_compound
-    description: "Full feature set (champion)"
+    description: "Full feature set for tree models (41 features, champion)"
 
   E6_with_strings:
     features:
@@ -107,16 +147,19 @@ experiments:
       - tier_2b_sentiment
       - tier_3_compound
       - tier_1b_interaction_strings
-    description: "Full + interaction strings (for linear models)"
+    description: "Full + interaction strings for linear models (46 features)"
 
   E7_market_only:
     features:
       - tier_mp_core
       - tier_mp_risk
-    description: "Market features only (ablation)"
+    description: "Market features only — ablation (15 features)"
 
-  E8_behavioral_only:
+  E8_no_sentiment:
     features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
       - tier_2a_behavioral
-      - tier_2b_sentiment
-    description: "Behavioral features only (ablation)"
+      - tier_3_compound
+    description: "Full minus sentiment — production fallback (38 features)"

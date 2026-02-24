@@ -1,11 +1,11 @@
 # Context Dump
 
-## Session Info (updated 2026-02-23 session 7)
-- **Timestamp:** 2026-02-23
+## Session Info (updated 2026-02-24 session 10)
+- **Timestamp:** 2026-02-24
 - **Branch:** `feature/aws-mlops-pipeline` (pushed to GitHub)
-- **Latest commit:** `635139b` ("Update CLAUDE.md and CONTEXT.MD with session 6 changes")
-- **Prior commit:** `f3262ca` ("Revamp README with full architecture diagrams, dataset docs, and setup guide")
-- **All phases committed + full infrastructure deployed to AWS (44 resources) + all 3 Docker images in ECR + GitHub secret set + branch pushed.**
+- **Latest commit:** `635139b` — sessions 8-10 changes uncommitted
+- **Full pipeline E2E working on AWS** — all 8 SFN steps pass (~23 min). Streamlit dashboard live.
+- **Session 10: feature alignment + Streamlit fixes applied** — feature_tiers.yaml rewritten, recommendations pipeline integrated, eval.json fixed, 3 compound features added, 6 new tests. 129 tests (127 pass). Needs Docker rebuild + re-trigger to validate PR-AUC improvement.
 
 ---
 
@@ -38,6 +38,33 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 ---
 
 ## Files Changed (and purpose)
+
+### Session 10 — Feature Alignment + Streamlit Recommendations + Tests:
+- `configs/feature_tiers.yaml` - REWRITTEN: All tier feature names match actual `build_features.py` output. E5_full: 41 features. Added `E8_no_sentiment` ablation. Added 3 missing interaction strings to `tier_1b`.
+- `src/features/build_features.py` - MODIFIED: Added 3 missing compound features to `build_compound_features()`: `sales_channel_x_renewal_bucket`, `has_interaction_x_renewal_bucket`, `competition_x_intent`.
+- `src/pipelines/steps/train_step.py` - MODIFIED: eval.json now saves `actual_features` (X.columns), `requested_features` (YAML list), `missing_features`. Added feature availability logging.
+- `src/pipelines/steps/score_step.py` - MODIFIED: Added `generate_recommendations()` call after `assign_risk_tiers()`, writes `scored/recommendations.parquet`.
+- `tests/test_streamlit_pages.py` - MODIFIED: Added `TestOverviewPage` (2 tests) and `TestRecommendationsPage` (2 tests). Total: 12 tests.
+- `tests/test_streamlit_data_loader.py` - MODIFIED: Added `TestLoadRecommendations` (2 tests). Total: 10 tests.
+- `CLAUDE.md` - MODIFIED: Updated to session 10 state.
+- `CONTEXT.MD` - MODIFIED: Updated to session 10 state.
+
+### Session 8 — Pipeline E2E Debugging + Instance Type + Docker amd64 + Env Var Fix:
+- `configs/settings.py` - MODIFIED: Default SageMaker instances `ml.m5.xlarge` → `ml.m5.large`
+- `.env` - MODIFIED: SageMaker instances `ml.m5.xlarge` → `ml.m5.large`
+- `.env.example` - MODIFIED: SageMaker instances `ml.m5.xlarge` → `ml.m5.large`
+- `infra/terraform/variables.tf` - MODIFIED: Default SageMaker instances → `ml.m5.large`
+- `infra/terraform/modules/step_functions/variables.tf` - MODIFIED: Default instances → `ml.m5.large`
+- `infra/terraform/modules/iam/main.tf` - MODIFIED: Added `sagemaker:AddTags` to SFN role, added `StepFunctionsGetEventsForSageMakerTrainingJobsRule` to EventBridge permissions
+- `src/pipelines/steps/bronze_step.py` - MODIFIED: `--bucket` defaults to `S3_BUCKET` env var, `--region` to `AWS_REGION`
+- `src/pipelines/steps/silver_step.py` - MODIFIED: Same env var defaults
+- `src/pipelines/steps/gold_step.py` - MODIFIED: Same env var defaults
+- `src/pipelines/steps/train_step.py` - MODIFIED: Same env var defaults
+- `src/pipelines/steps/evaluate_step.py` - MODIFIED: Same env var defaults
+- `src/pipelines/steps/score_step.py` - MODIFIED: Same env var defaults
+- `src/pipelines/steps/drift_step.py` - MODIFIED: Same env var defaults + `--reference-key`/`--scored-key` no longer required (have defaults), `--sns-topic-arn` defaults to `SNS_TOPIC_ARN` env var
+- `CLAUDE.md` - MODIFIED: Session 8 state
+- `CONTEXT.MD` - MODIFIED: Session 8 state
 
 ### Session 7 — Infrastructure Deploy + Docker Push + GitHub Setup:
 - No code files changed — session focused on deploying infrastructure, pushing Docker images, and configuring GitHub
@@ -191,7 +218,9 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | Moto tests use `with mock_aws():` context managers per test | Avoids state leaking between tests (no shared fixtures) |
 | Drift test assertions use `==` not `is` for booleans | scipy returns numpy.bool_ which fails identity check |
 | .gitignore uses `/data/` (leading slash) | Only ignores top-level data dir, not src/data/ |
-| Docker `--provenance=false` for Lambda images | Lambda rejects OCI image manifests from Docker Desktop buildx; V2 Schema 2 required |
+| Docker `--platform linux/amd64 --provenance=false` | Apple Silicon builds arm64 by default; Lambda/SageMaker need x86_64. `--provenance=false` for V2 Schema 2 |
+| Switched ml.m5.xlarge → ml.m5.large for dev | ml.m5.xlarge training quota pending; ml.m5.large has 15 training + 4 processing quota. 8 GB RAM sufficient for 20K customer × 12 month dataset |
+| Step files read bucket from S3_BUCKET env var | ASL passes config via Environment block, not ContainerArguments. argparse defaults to env var with CLI override |
 | SFN role needs EventBridge permissions | `.sync` integrations create managed EventBridge rules to monitor SageMaker job completion |
 | Terraform state in separate S3 bucket | `spanishgas-terraform-state` created manually before `terraform init` (chicken-and-egg) |
 | AdministratorAccess for IAM user during deploy | Simplest for dev account; should scope down for prod |
@@ -229,22 +258,60 @@ Docker Desktop buildx creates OCI manifests; Lambda requires Docker V2 Schema 2.
 ### FIXED: Dockerfiles missing from working tree (session 7)
 `Dockerfile.lambda`, `Dockerfile.processing`, `Dockerfile.streamlit` tracked in git but absent from working tree. Restored with `git checkout HEAD -- Dockerfile.*`.
 
-### PENDING: SageMaker training job quota
-`ml.m5.xlarge for training job usage` requested (increase to 1), awaiting approval. Processing quota already approved.
+### RESOLVED: SageMaker training job quota (session 8)
+Bypassed `ml.m5.xlarge` quota wait by switching to `ml.m5.large` (15 training instances, 4 processing instances available). All configs, TF variables, and defaults updated.
+
+### FIXED: Docker images built for wrong architecture (session 8)
+Lambda and Processing images were built as arm64 (Apple Silicon default). Lambda returned `Runtime.InvalidEntrypoint`; SageMaker Processing returned `Exec format error`. Rebuilt both with `--platform linux/amd64 --provenance=false`.
+
+### FIXED: SFN IAM missing `sagemaker:AddTags` (session 8)
+Step Functions `.sync` integrations automatically add `MANAGED_BY_AWS: STARTED_BY_STEP_FUNCTIONS` tag. SFN role needed `sagemaker:AddTags` permission. Also added `StepFunctionsGetEventsForSageMakerTrainingJobsRule` EventBridge rule (was only scoped to Processing).
+
+### FIXED: Step files expected CLI args, ASL passes env vars (session 8)
+All 6 step files used `argparse` with `--bucket` as required CLI argument, but ASL passes `S3_BUCKET` as an environment variable via `Environment` block. Updated all `main()` functions to default `--bucket` from `os.environ.get("S3_BUCKET")`, `--region` from `AWS_REGION`, `--sns-topic-arn` from `SNS_TOPIC_ARN`.
+
+### FIXED: consumption file format mismatch (session 9)
+User converted CSV→parquet locally and uploaded `raw/consumption_hourly_2024.parquet` (1.8 GB) to S3.
+
+### FIXED: BronzeETL OOM on ml.m5.large and ml.m5.xlarge (session 9)
+176M-row consumption parquet caused OOM even on ml.m5.xlarge (16 GB). Fixed by rewriting `bronze_step.py` with chunked processing: `read_parquet_batches()` downloads to temp file, iterates 2M-row batches via pyarrow, aggregates per-chunk to monthly, then combines. Peak memory ~2.5 GB. Runs on ml.m5.large.
+
+### FIXED: TrainModel 0-features crash (session 9)
+`train_step.py:_load_feature_list()` had 3 bugs: experiment name `"E5"` → `"E5_full"`, YAML key `"tiers"` → `"features"`, top-level key `"tiers"` → `"feature_tiers"`.
+
+### FIXED: DriftCheck NoSuchKey on first run (session 9)
+`drift_step.py` crashed when `monitoring/reference.json` didn't exist. Added try/except for `NoSuchKey`: saves current scored data as baseline reference and skips drift comparison.
+
+### FIXED: Streamlit exec format error (session 9)
+Streamlit image was arm64. Rebuilt with `--platform linux/amd64 --provenance=false`.
+
+### FIXED: Streamlit ModuleNotFoundError: No module named 'src' (session 9)
+`Dockerfile.streamlit` copied `src/` but never installed it as a package. Added `RUN pip install --no-cache-dir -e .` after COPY.
+
+### FIXED: feature_tiers.yaml misalignment → low PR-AUC (session 10)
+Pipeline PR-AUC = 0.289 vs notebook ~0.745. Root cause: YAML listed 33 features with wrong names. Fixed: complete rewrite of `feature_tiers.yaml` to match actual `build_features.py` output. E5_full now has 41 features. Also added 3 missing compound features (`sales_channel_x_renewal_bucket`, `has_interaction_x_renewal_bucket`, `competition_x_intent`) to `build_compound_features()`.
+
+### FIXED: Recommendations page NoSuchKey (session 10)
+`score_step.py` now calls `generate_recommendations()` from `src/reco/engine.py` and writes `scored/recommendations.parquet`.
+
+### FIXED: evaluation.json saves wrong feature list (session 10)
+`train_step.py` now saves `X.columns.tolist()` as `"features"`, plus `"requested_features"` and `"missing_features"` for debugging.
 
 ---
 
 ## Exact Next Steps (ordered)
 
-All code and infra work complete. Waiting on SageMaker training job quota approval.
-
-1. ~~**Run `terraform apply`**~~ — DONE session 7 (19 new resources: ECS, ALB, networking, OIDC, Streamlit ECR, SNS subscription)
-2. ~~**Build & push Streamlit Docker image**~~ — DONE session 7 (pushed to `spanishgas-dev-streamlit` ECR)
-3. ~~**Set GitHub secret**~~ — DONE session 7 (`AWS_DEPLOY_ROLE_ARN` set via `gh secret set`)
-4. ~~**Push branch to GitHub**~~ — DONE session 7 (CI workflow triggered)
-5. **Wait for SageMaker training job quota** — `ml.m5.xlarge for training job usage` (requested, pending approval)
-6. **Upload raw data** — `aws s3 cp <data>.csv s3://spanishgas-data-dev/raw/` (triggers full pipeline automatically)
-7. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
+1. ~~**Switch to ml.m5.large**~~ — DONE session 8
+2. ~~**Rebuild Docker images for amd64**~~ — DONE session 8 (Lambda + Processing)
+3. ~~**Fix SFN IAM (AddTags + Training EventBridge)**~~ — DONE session 8
+4. ~~**Fix step files env var support**~~ — DONE session 8 (all 6 steps)
+5. ~~**Upload raw data**~~ — DONE session 8 (7 files in `s3://spanishgas-data-dev/raw/`)
+6. **Fix consumption file format mismatch** — choose Option A, B, or C above
+7. **Rebuild & push Processing image** — after fixing bronze_step.py
+8. **Clear DynamoDB manifest + re-trigger pipeline** — `aws dynamodb delete-item` then `aws lambda invoke`
+9. **Validate full pipeline E2E** — monitor SFN execution through all steps
+10. **Commit session 8 changes** — all fixes (instance type, amd64, IAM, env vars, consumption fix)
+11. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
 
 ---
 
@@ -286,19 +353,68 @@ All code and infra work complete. Waiting on SageMaker training job quota approv
 - SNS email subscription (rawad.yared@student.ie.edu)
 
 ### Docker Images Pushed
-- `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-lambda:latest`
-- `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-processing:latest`
+- `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-lambda:latest` (rebuilt amd64 session 8)
+- `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-processing:latest` (rebuilt amd64 session 8)
 - `559307249592.dkr.ecr.eu-west-1.amazonaws.com/spanishgas-dev-streamlit:latest`
-- All built with `--provenance=false` for Docker V2 manifest
+- All built with `--platform linux/amd64 --provenance=false` (Apple Silicon builds arm64 by default)
 
-### SageMaker Quotas
-- `ml.m5.xlarge for processing job usage`: approved (1)
-- `ml.m5.xlarge for training job usage`: pending approval (requested 1)
+### SageMaker Quotas (updated session 8)
+- `ml.m5.large for training job usage`: 15 instances available
+- `ml.m5.large for processing job usage`: 4 instances available
+- `ml.m5.xlarge for processing job usage`: 1 instance approved
+- `ml.m5.xlarge for training job usage`: pending (no longer needed — switched to ml.m5.large)
 
 ### Files Changed (session 5)
 - `.env` - MODIFIED: S3_BUCKET → spanishgas-data-dev, DYNAMODB_MANIFEST_TABLE → spanishgas-dev-pipeline-manifest, real ARNs from terraform output
 - `infra/terraform/modules/iam/main.tf` - MODIFIED: Added EventBridge permissions (events:PutRule, PutTargets, DescribeRule, DeleteRule, RemoveTargets) for SFN .sync integrations
 - `infra/terraform/.terraform.lock.hcl` - NEW: Provider lock file (AWS provider v5.100.0)
+
+---
+
+## Commands Run + Key Outputs (session 8)
+
+```
+# Instance type change — updated configs/settings.py, .env, .env.example, TF variables (dev.tfvars already ml.m5.large)
+terraform plan -var-file=environments/dev.tfvars          # No changes (dev.tfvars already had ml.m5.large)
+
+# Attempt 1: Lambda invoke — Runtime.InvalidEntrypoint (arm64 image on x86_64 Lambda)
+docker build --platform linux/amd64 --provenance=false -f Dockerfile.lambda -t <ecr>/spanishgas-dev-lambda:latest .
+docker push <ecr>/spanishgas-dev-lambda:latest
+aws lambda update-function-code --function-name spanishgas-dev-pipeline-trigger --image-uri <ecr>/spanishgas-dev-lambda:latest
+
+# Attempt 2: SageMaker Processing — Exec format error (arm64 Processing image on x86_64 SageMaker)
+docker build --platform linux/amd64 --provenance=false -f Dockerfile.processing -t <ecr>/spanishgas-dev-processing:latest .
+docker push <ecr>/spanishgas-dev-processing:latest
+
+# Attempt 3: SageMaker Processing — sagemaker:AddTags AccessDeniedException
+# Fixed: Added sagemaker:AddTags + TrainingJobsRule to SFN IAM policy
+terraform apply -var-file=environments/dev.tfvars -auto-approve  # 0 added, 1 changed (IAM policy)
+
+# Attempt 4: SageMaker Processing — argparse error: --bucket required
+# Fixed: Updated all 6 step files to default --bucket from S3_BUCKET env var
+docker build --platform linux/amd64 --provenance=false -f Dockerfile.processing -t <ecr>/spanishgas-dev-processing:latest .
+docker push <ecr>/spanishgas-dev-processing:latest
+
+# Attempt 5: BronzeETL runs but fails — NoSuchKey: raw/consumption_hourly_2024.parquet
+# Root cause: File is consumption_hourly_2024.csv (8.7 GB CSV), not .parquet
+# BLOCKED — needs fix in bronze_step.py
+
+# Between attempts: clearing stale DynamoDB manifest entries
+aws dynamodb delete-item --table-name spanishgas-dev-pipeline-manifest --key '{"file_key":{"S":"raw/customer_attributes.csv"}}'
+aws lambda invoke --function-name spanishgas-dev-pipeline-trigger --payload '{"Records":[{"s3":{"bucket":{"name":"spanishgas-data-dev"},"object":{"key":"raw/customer_attributes.csv"}}}]}' ...
+```
+
+## Raw Data Files in S3 (session 8)
+```
+s3://spanishgas-data-dev/raw/
+  churn_label.csv              180 KB
+  consumption_hourly_2024.csv  8.7 GB  ← bronze_step expects .parquet
+  costs_by_province_month.csv  32 KB
+  customer_attributes.csv      915 KB
+  customer_contracts.csv       964 KB
+  customer_interactions.json   1.7 MB
+  price_history.csv            24 MB
+```
 
 ---
 
@@ -399,8 +515,21 @@ SKIPPED: tests/test_models.py::TestModelDefinitions::test_xgboost_included_when_
 - [x] Build & push Streamlit Docker image (DONE session 7 — pushed to spanishgas-dev-streamlit ECR)
 - [x] Install gh CLI + set GitHub secret (DONE session 7 — AWS_DEPLOY_ROLE_ARN set)
 - [x] Push branch to GitHub (DONE session 7 — CI workflow triggered)
-- [ ] Wait for SageMaker training job quota approval
-- [ ] Upload raw data to s3://spanishgas-data-dev/raw/
+- [x] Switch SageMaker instances to ml.m5.large (DONE session 8 — bypassed xlarge quota wait)
+- [x] Rebuild Docker images for linux/amd64 (DONE session 8 — Lambda + Processing)
+- [x] Fix SFN IAM: sagemaker:AddTags + Training EventBridge rule (DONE session 8)
+- [x] Fix step files to read S3_BUCKET/AWS_REGION from env vars (DONE session 8 — all 6 steps)
+- [x] Upload raw data to s3://spanishgas-data-dev/raw/ (DONE session 8 — 7 files)
+- [x] Lambda update-function-code for amd64 image (DONE session 8)
+- [x] Fix consumption file format mismatch (DONE session 9 — CSV→parquet converted, chunked processing)
+- [x] Fix feature_tiers.yaml misalignment (DONE session 10 — complete rewrite, 41 features in E5_full)
+- [x] Fix recommendations pipeline (DONE session 10 — score_step.py generates recommendations.parquet)
+- [x] Fix eval.json feature list (DONE session 10 — saves actual X.columns)
+- [x] Add missing compound features (DONE session 10 — 3 interaction strings added to build_features.py)
+- [x] Add Overview + Recommendations page tests (DONE session 10 — 6 new tests)
+- [ ] Rebuild & push Processing + Streamlit Docker images (after session 10 code changes)
+- [ ] Clear DynamoDB manifest + re-trigger pipeline (validate PR-AUC improvement)
+- [ ] Commit sessions 8-10 changes
 - [ ] Open PR: feature/aws-mlops-pipeline -> main
 
 ---

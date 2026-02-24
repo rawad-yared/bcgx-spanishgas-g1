@@ -21,6 +21,29 @@ def read_parquet(bucket: str, key: str, region: str = "eu-west-1") -> pd.DataFra
     return pd.read_parquet(io.BytesIO(obj["Body"].read()))
 
 
+def read_parquet_batches(
+    bucket: str,
+    key: str,
+    region: str = "eu-west-1",
+    columns: list[str] | None = None,
+    batch_size: int = 500_000,
+):
+    """Yield DataFrames in batches from a parquet file on S3.
+
+    Downloads to a temp file first to avoid holding full file in Python heap,
+    then uses pyarrow record-batch reader to keep peak memory low.
+    """
+    import tempfile
+
+    s3 = get_s3_client(region)
+    with tempfile.NamedTemporaryFile(suffix=".parquet") as tmp:
+        s3.download_fileobj(bucket, key, tmp)
+        tmp.seek(0)
+        pf = pq.ParquetFile(tmp.name)
+        for batch in pf.iter_batches(batch_size=batch_size, columns=columns):
+            yield batch.to_pandas()
+
+
 def write_parquet(df: pd.DataFrame, bucket: str, key: str, region: str = "eu-west-1") -> None:
     s3 = get_s3_client(region)
     buf = io.BytesIO()

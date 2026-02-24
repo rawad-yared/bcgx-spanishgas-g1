@@ -9,9 +9,11 @@ import os
 import numpy as np
 import pandas as pd
 
+from botocore.exceptions import ClientError
+
 from src.monitoring.alerts import publish_cloudwatch_metrics, publish_sns_alert
 from src.monitoring.drift import compute_feature_drift, compute_prediction_drift, summarize_drift
-from src.monitoring.reference_store import load_reference
+from src.monitoring.reference_store import load_reference, save_reference
 from src.pipelines.s3_io import read_parquet, write_json
 
 logger = logging.getLogger(__name__)
@@ -49,11 +51,31 @@ def run_drift_step(
     """Execute drift detection: load reference + current, compute, alert."""
     logger.info("Drift step: ref=%s scored=%s", reference_key, scored_key)
 
-    ref_payload = load_reference(bucket, reference_key, region)
+    # Load scored data first (needed regardless)
+    scored_df = read_parquet(bucket, scored_key, region)
+    numeric_features = [c for c in scored_df.select_dtypes(include="number").columns
+                        if c not in ("customer_id",)]
+
+    # Load reference; on first run it won't exist yet
+    try:
+        ref_payload = load_reference(bucket, reference_key, region)
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "NoSuchKey":
+            logger.info("No reference found — first run. Saving current data as reference.")
+            save_reference(scored_df, numeric_features, bucket, reference_key, region)
+            first_run_result = {
+                "any_drift": False,
+                "n_features_drifted": 0,
+                "summary": "First run — reference baseline saved, no drift comparison.",
+                "feature_drift": {},
+                "prediction_drift": {},
+            }
+            write_json(first_run_result, bucket, output_key, region)
+            return first_run_result
+        raise
+
     reference_df = _build_reference_dataframe(ref_payload)
     features = list(ref_payload.get("features", {}).keys())
-
-    scored_df = read_parquet(bucket, scored_key, region)
     logger.info("Reference: %d features, Scored: %d rows", len(features), len(scored_df))
 
     # Feature drift
@@ -95,15 +117,18 @@ def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(name)s %(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Drift detection step")
-    parser.add_argument("--bucket", required=True)
-    parser.add_argument("--reference-key", required=True)
-    parser.add_argument("--scored-key", required=True)
+    parser.add_argument("--bucket", default=os.environ.get("S3_BUCKET", ""))
+    parser.add_argument("--reference-key", default="monitoring/reference.json")
+    parser.add_argument("--scored-key", default="scored/scored_customers.parquet")
     parser.add_argument("--output-key", default="monitoring/drift_results.json")
-    parser.add_argument("--region", default="eu-west-1")
+    parser.add_argument("--region", default=os.environ.get("AWS_REGION", "eu-west-1"))
     parser.add_argument("--namespace", default="SpanishGas/MLOps")
-    parser.add_argument("--sns-topic-arn", default=None)
+    parser.add_argument("--sns-topic-arn", default=os.environ.get("SNS_TOPIC_ARN"))
     parser.add_argument("--p-threshold", type=float, default=0.01)
     args = parser.parse_args()
+
+    if not args.bucket:
+        parser.error("--bucket is required (or set S3_BUCKET env var)")
 
     run_drift_step(
         args.bucket, args.reference_key, args.scored_key,
