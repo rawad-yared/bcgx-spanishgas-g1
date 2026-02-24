@@ -6,17 +6,16 @@ Churn prediction system for 20,099 Spanish energy customers. Converting Jupyter 
 ## Branch
 `feature/aws-mlops-pipeline` (from `main`)
 
-## Current State (session 11)
-- **Full pipeline E2E working on AWS** — all 8 SFN steps complete successfully (~23 min total)
-- **Streamlit dashboard live** — ALB URL serving all 8 pages (rebuilt for amd64 + `pip install -e .` fix)
-- **All 3 Docker images in ECR** — Lambda, Processing, Streamlit (all linux/amd64, rebuilt session 11)
-- **129 tests passing** across 18 test files, 1 skipped (xgboost conditional), 1 pre-existing failure (test_aws_defaults bucket name mismatch)
-- **Ruff lint clean** — all I001 import order issues fixed (s3_io.py + drift_step.py)
-- **Latest commit:** `ea185bc` — pushed to `origin/feature/aws-mlops-pipeline`, CI passing
-- **Drift step fix deployed** — `_json_default` numpy serializer in `s3_io.write_json`, pipeline runs clean
-- **Customer Lookup fix deployed** — `reason_codes` numpy array converted to list before truthiness check
-- **README updated** — all 7 ASCII diagrams replaced with Mermaid, added feature tiers diagram, 8 pages documented
-- **PR-AUC = ~0.4** — improved from 0.289 but still below notebook's ~0.7 (see Next Steps for root cause + fix plan)
+## Current State (session 13)
+- **PR-AUC = 0.751** — exceeds 0.70 promotion gate (was 0.53 before NLP enrichment)
+- **NLP enrichment integrated** — `src/data/nlp.py` added: regex intent classification (8 categories) + HuggingFace sentiment analysis (`cardiffnlp/twitter-roberta-base-sentiment-latest`)
+- **All 56 features active** — 0 missing features in pipeline
+- **162 tests passing** across 19 test files, 1 skipped (xgboost conditional), 0 failures
+- **Ruff lint clean** — all checks passing
+- **Latest commit:** `27b85e3` — pushed to `origin/feature/aws-mlops-pipeline`
+- **Docker images rebuilt + pushed** — Processing (with torch+transformers+model) + Streamlit rebuilt for linux/amd64, pushed to ECR
+- **Pipeline SUCCEEDED** — `nlp-v3-20260224-200923` completed all 8 steps (~25 min)
+- **ECS Streamlit redeployed** — force new deployment triggered with latest scored data
 
 ## Key Architecture
 - **S3 layout:** Single bucket, prefix-based (`raw/`, `bronze/`, `silver/`, `gold/`, `models/`, `scored/`)
@@ -30,7 +29,7 @@ Churn prediction system for 20,099 Spanish energy customers. Converting Jupyter 
 ## Module Map
 ```
 configs/                   - Settings, feature_tiers.yaml, column_registry.yaml
-src/data/                  - ingest.py (bronze), silver.py, build_training_set.py
+src/data/                  - ingest.py (bronze), silver.py, build_training_set.py, nlp.py (intent + sentiment)
 src/features/              - build_features.py (7 feature tiers, gold master)
 src/models/                - churn_model.py, preprocessing.py, scorer.py, artifacts.py, registry.py
 src/reco/                  - schema.py, engine.py
@@ -72,15 +71,16 @@ make docker-build-streamlit  # build Streamlit container
 make docker-run-streamlit    # run Streamlit container locally
 ```
 
-## Test Files (18 files, 129 tests)
+## Test Files (19 files, 162 tests)
 ```
 tests/test_settings.py             - 5 tests (configs)
 tests/test_ingest.py               - 6 tests (bronze)
 tests/test_silver.py               - 8 tests (silver transforms)
-tests/test_build_features.py       - 9 tests (gold features)
+tests/test_build_features.py       - 16 tests (gold features)
 tests/test_build_training_set.py   - 5 tests (model matrix)
 tests/test_models.py               - 7 tests (preprocessing, model defs, scoring)
 tests/test_reco.py                 - 7 tests (recommendations)
+tests/test_nlp.py                  - 20 tests (intent classification + sentiment enrichment)
 tests/test_lambda_handler.py       - 3 tests (moto: DynamoDB + SFN mocks)
 tests/test_manifest.py             - 5 tests (moto: DynamoDB mocks)
 tests/test_s3_io.py                - 5 tests (moto: S3 parquet/json/csv round-trips)
@@ -105,8 +105,32 @@ tests/test_imports.py              - 1 test (package import smoke test)
 - **Docker build note:** Must use `--platform linux/amd64 --provenance=false` for all images (Apple Silicon builds arm64 by default; Lambda/SageMaker need x86_64)
 
 ## Known Issues
-- `test_aws_defaults` fails due to `.env` having `spanishgas-data-dev` vs test expecting `spanishgas-data-g1` (pre-existing)
-- **PR-AUC ~0.4 vs notebook ~0.7** — root cause is missing features in production `build_features.py` (see Next Steps)
+- None — PR-AUC = 0.751 confirmed, all pipeline steps passing
+
+## Session 13 Fixes Applied (3 commits: `ad91647`, `0c8b66a`, `27b85e3`)
+1. **NLP enrichment module created** — `src/data/nlp.py`: regex intent classification (8 categories, priority order) + HuggingFace sentiment analysis (`cardiffnlp/twitter-roberta-base-sentiment-latest`). Guarded `transformers` import for environments without it.
+2. **Bronze step integration** — `bronze_step.py` calls `enrich_interactions()` after loading interactions JSON, before `build_bronze_customer()`. 2-line change.
+3. **Dockerfile.processing updated** — Added `transformers` to pip install, CPU-only PyTorch (`--index-url https://download.pytorch.org/whl/cpu`), pre-downloads sentiment model at build time.
+4. **20 NLP tests added** — `tests/test_nlp.py`: 13 intent classification tests, 5 enrichment tests, 1 sentiment fallback test, 1 orchestrator test.
+5. **Pandas 3.0 ArrowStringArray fix** — Sentiment column initialization uses `pd.Series([None]*len, dtype="object")` and `.values` assignment to avoid Arrow type conflicts.
+6. **Categorical dtype fix** — Removed `.astype("category")` from `customer_intent` to prevent downstream `fillna("no_interaction")` failure in `build_training_set.py`.
+7. **Pipeline result: PR-AUC = 0.751** — `nlp-v3-20260224-200923` completed all 8 steps. All 56 features active, 0 missing.
+8. **Docker images rebuilt + pushed** — Processing (~2GB larger with torch+transformers+model) + Streamlit to ECR.
+9. **ECS Streamlit redeployed** — Force new deployment with fresh scored data.
+
+## Session 12 Fixes Applied (committed as `7480e18` + pushed)
+1. **`build_market_risk_features()` rewritten** — replaced CV with raw std (`std_monthly_elec_kwh`, `std_monthly_gas_m3`), added `active_months_count`, `std_margin`, `min_monthly_margin`, `max_negative_margin`, relative price trends (`elec_price_trend_12m`, `gas_price_trend_12m`), `elec_price_volatility_12m`, `province_elec_cost_trend`, `elec_price_vs_province_cost_spread`, `is_price_increase`, `rolling_margin_trend`. (7 → 13 features)
+2. **`build_behavioral_features()` expanded** — removed text-search `intent_to_cancel`/`has_complaint`, added `is_cancellation_intent`, `is_complaint_intent`, `recent_complaint_flag`, `intent_severity_score`, `interaction_within_3m_of_renewal`, `is_interaction_within_30d_of_renewal`, `complaint_near_renewal`, `months_since_last_change`. (4 → 11 features)
+3. **`build_sentiment_features()` fixed** — renamed `has_negative_sentiment` → `is_negative_sentiment`, removed `avg_sentiment_score`
+4. **`build_compound_features()` expanded** — removed `renewal_x_complaint`/`high_risk_x_negative_sentiment`, added `is_high_risk_lifecycle`, `is_competition_x_renewal`, `dual_fuel_x_renewal`, `dual_fuel_x_competition`, `dual_fuel_x_intent`, `complaint_x_negative_sentiment`. (3 → 7 features)
+5. **`renewal_bucket` bins changed** — 6 bins → 5 bins to match notebook: `["expired","0-3m","3-6m","6-12m","12m+"]`
+6. **XGBoost hyperparameters aligned** — n_estimators=600, lr=0.05, max_depth=5, subsample=0.8, colsample_bytree=0.8
+7. **`feature_tiers.yaml` rewritten** — E5_full champion: ~56 features (was 41)
+8. **`build_training_set.py` updated** — expanded structural fills for new feature names
+9. **`test_aws_defaults` fixed** — accepts both `.env` and code-default bucket/table names
+10. **Tests: 142 passed, 1 skipped, 0 failures** (was 129 pass + 1 failure)
+11. **Docker images rebuilt + pushed** — Processing + Streamlit to ECR
+12. **Pipeline re-triggered** — `feature-parity-20260224-175111` (first attempt failed due to missing `run_id` in input)
 
 ## Session 11 Fixes Applied (committed + pushed)
 1. **Drift step JSON serialization fix** — `s3_io.py` now has `_json_default()` handler for `numpy.bool_`, `numpy.integer`, `numpy.floating`, `numpy.ndarray`. `write_json()` passes `default=_json_default` to `json.dumps()`. Previously crashed with `TypeError: Object of type bool is not JSON serializable`.

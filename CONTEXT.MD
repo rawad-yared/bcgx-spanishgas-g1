@@ -1,12 +1,12 @@
 # Context Dump
 
-## Session Info (updated 2026-02-24 session 11)
+## Session Info (updated 2026-02-24 session 13)
 - **Timestamp:** 2026-02-24
-- **Branch:** `feature/aws-mlops-pipeline` (pushed to GitHub, CI passing)
-- **Latest commit:** `ea185bc` — all sessions 8-11 changes committed + pushed
-- **Full pipeline E2E working on AWS** — all 8 SFN steps pass (~23 min). Drift step fix validated.
-- **Streamlit dashboard live** — all 8 pages working, Customer Lookup "Why This Recommendation" fixed.
-- **Session 11: drift fix, customer lookup fix, README Mermaid, CI passing** — Docker images rebuilt + pushed, pipeline re-triggered and SUCCEEDED, README diagrams converted from ASCII to Mermaid, ruff lint clean, PR-AUC gap root-caused (missing features).
+- **Branch:** `feature/aws-mlops-pipeline` (pushed to GitHub)
+- **Latest commit:** `27b85e3` — session 13 NLP enrichment + categorical dtype fix
+- **Session 13: NLP enrichment + PR-AUC 0.751** — Created `src/data/nlp.py` with regex intent classification + HuggingFace sentiment analysis. Integrated into `bronze_step.py`. Updated `Dockerfile.processing` with torch+transformers+model pre-download. 20 new tests. Fixed Pandas 3.0 ArrowStringArray conflict and Categorical dtype fillna crash. Pipeline `nlp-v3-20260224-200923` SUCCEEDED — PR-AUC = 0.751, all 56 features active. Streamlit redeployed.
+- **Pipeline execution:** `arn:aws:states:eu-west-1:559307249592:execution:spanishgas-dev-pipeline:nlp-v3-20260224-200923` — SUCCEEDED
+- **PR-AUC:** 0.751 (exceeds 0.70 promotion gate)
 
 ---
 
@@ -36,10 +36,32 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | 11: Test Expansion | DONE (session 6) | E2E tests 1->22, page render tests (8), pytest.mark.slow registered |
 | 12: README Revamp | DONE (session 6) | 701-line README with architecture diagrams, dataset docs, setup guide |
 | 13: Session 11 Fixes | DONE (session 11) | Drift step JSON fix, Customer Lookup fix, README Mermaid diagrams, lint fixes, Docker rebuild, pipeline re-trigger |
+| 14: Feature Parity | DONE (session 12) | build_features.py rewritten for ~56 features, XGBoost hyperparams aligned, 142 tests, Docker rebuilt, pipeline re-triggered |
+| 15: NLP Enrichment | DONE (session 13) | nlp.py (intent + sentiment), bronze_step integration, Dockerfile torch+transformers, 20 new tests, PR-AUC = 0.751 |
 
 ---
 
 ## Files Changed (and purpose)
+
+### Session 13 — NLP Enrichment + Pipeline PR-AUC 0.751:
+- `src/data/nlp.py` - NEW: NLP enrichment module — `classify_intent()` (regex, 8 categories, priority order), `enrich_interactions_intent()` (customer_intent + has_interaction columns), `enrich_interactions_sentiment()` (HuggingFace cardiffnlp/twitter-roberta-base-sentiment-latest, guarded import), `enrich_interactions()` orchestrator. Fixed: ArrowStringArray init (object dtype + `.values`), removed `.astype("category")` to avoid downstream fillna crash.
+- `src/pipelines/steps/bronze_step.py` - MODIFIED: Added `from src.data.nlp import enrich_interactions` import and `interactions = enrich_interactions(interactions)` call after loading interactions JSON.
+- `Dockerfile.processing` - MODIFIED: Added `transformers` to pip install, CPU-only PyTorch (`--index-url https://download.pytorch.org/whl/cpu`), pre-download of sentiment model at build time.
+- `tests/test_nlp.py` - NEW: 20 tests — 13 intent classification (each category, priority, case insensitivity, None/empty), 5 enrichment (column creation, has_interaction, no mutation, row count, date-only), 1 sentiment fallback, 1 orchestrator.
+- `CLAUDE.md` - MODIFIED: Updated to session 13 state
+- `CONTEXT.MD` - MODIFIED: Updated to session 13 state
+- `README.md` - MODIFIED: Updated repo structure (nlp.py), test count (162+/19 files), feature count (56), feature tier diagram (actual feature names), model details (PR-AUC 0.751, hyperparameters, NLP)
+
+### Session 12 — Feature Parity + XGBoost Hyperparameters + Test Fix:
+- `src/features/build_features.py` - REWRITTEN: `build_market_risk_features()` (raw std, relative price trends, 7→13 features), `build_behavioral_features()` (intent flags, severity, interaction timing, 4→11 features), `build_sentiment_features()` (renamed `is_negative_sentiment`, removed `avg_sentiment_score`), `build_compound_features()` (6 new binary flags), `build_lifecycle_features()` (5 bins instead of 6 for `renewal_bucket`)
+- `configs/feature_tiers.yaml` - REWRITTEN: All tiers updated to notebook feature names. E5_full: ~56 features (was 41).
+- `src/models/churn_model.py` - MODIFIED: XGBoost hyperparameters aligned with notebook (n_estimators=600, lr=0.05, max_depth=5, subsample=0.8, colsample_bytree=0.8)
+- `src/data/build_training_set.py` - MODIFIED: Added `months_since_last_change` to sentinel cols, expanded binary flag matching pattern
+- `tests/test_build_features.py` - REWRITTEN: 9→16 tests, covers new risk/behavioral/sentiment/compound features
+- `tests/test_pipeline_e2e.py` - MODIFIED: Updated market risk feature assertions to new names
+- `tests/test_settings.py` - MODIFIED: `test_aws_defaults` accepts both `.env` and code-default bucket/table names
+- `CLAUDE.md` - MODIFIED: Updated to session 12 state
+- `CONTEXT.MD` - MODIFIED: Updated to session 12 state
 
 ### Session 11 — Drift Fix + Customer Lookup Fix + README Mermaid + CI:
 - `src/pipelines/s3_io.py` - MODIFIED: Added `_json_default()` numpy type handler (bool_, integer, floating, ndarray). `write_json()` now uses `default=_json_default`. Fixed import order (boto3 before numpy).
@@ -184,14 +206,15 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 - `infra/terraform/modules/monitoring/` - NEW: SNS topic, CloudWatch alarms
 - `infra/terraform/modules/ecr/` - NEW: Lambda + Processing repos with lifecycle
 
-### Tests (ALL DONE — session 4, 93 passing + 1 skipped):
+### Tests (ALL DONE — 162 passing + 1 skipped, 19 files):
 - `tests/test_settings.py` - 5 tests
 - `tests/test_ingest.py` - 6 tests
 - `tests/test_silver.py` - 8 tests
-- `tests/test_build_features.py` - 9 tests
+- `tests/test_build_features.py` - 16 tests (gold features, expanded session 12)
 - `tests/test_build_training_set.py` - 5 tests
 - `tests/test_models.py` - 7 tests (xgboost test uses pytest.importorskip)
 - `tests/test_reco.py` - 7 tests
+- `tests/test_nlp.py` - 20 tests (intent classification + sentiment enrichment, NEW session 13)
 - `tests/test_lambda_handler.py` - 3 tests (moto: DynamoDB + SFN mocks)
 - `tests/test_manifest.py` - 5 tests (moto: DynamoDB mocks)
 - `tests/test_s3_io.py` - 5 tests (moto: S3 parquet/json/csv round-trips)
@@ -199,8 +222,10 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 - `tests/test_drift.py` - 10 tests (KS drift detection, numpy.bool_ comparison via ==)
 - `tests/test_data_quality.py` - 7 tests (null rates, duplicates, schema, layer thresholds)
 - `tests/test_alerts.py` - 5 tests (moto: SNS + CloudWatch)
-- `tests/test_streamlit_data_loader.py` - 8 tests (local file loading, monkeypatched st.cache_data)
-- `tests/test_pipeline_e2e.py` - 1 test (bronze smoke test, @pytest.mark.slow)
+- `tests/test_streamlit_data_loader.py` - 10 tests (local file loading + recommendations)
+- `tests/test_streamlit_pages.py` - 12 tests (page render mocks for 6 pages)
+- `tests/test_pipeline_e2e.py` - 22 tests (bronze, silver, gold, score, full pipeline E2E)
+- `tests/test_imports.py` - 1 test (package import smoke test)
 
 ---
 
@@ -316,8 +341,17 @@ Pipeline PR-AUC = 0.289 vs notebook ~0.745. Root cause: YAML listed 33 features 
 ### FIXED: Ruff I001 import order in s3_io.py and drift_step.py (session 11)
 `s3_io.py`: `numpy` was imported before `boto3` (alphabetically wrong). `drift_step.py`: blank line between `pandas` and `botocore` caused ruff to see them as separate import groups. Both fixed, CI now passing.
 
-### OPEN: PR-AUC ~0.4 vs notebook ~0.7 (identified session 11)
-Root cause: production `build_features.py` creates 41 features, notebook uses ~56. Missing ~15 features across MP Risk (~9), Behavioral (~6), and Compound (~3) tiers. See fix steps below.
+### FIXED: PR-AUC gap — feature parity with notebook (session 12)
+Rewrote `build_features.py` to match notebook's ~56 features exactly: MP_Risk (7→13), Behavioral (4→11), Sentiment (renamed `is_negative_sentiment`), Compound (3→7). Aligned XGBoost hyperparameters (600 trees, lr=0.05, depth=5, subsample=0.8). Changed `renewal_bucket` from 6→5 bins. Fixed `test_aws_defaults`. Pipeline re-triggered to validate PR-AUC >= 0.70.
+
+### FIXED: NLP enrichment missing from pipeline (session 13)
+Created `src/data/nlp.py` with regex intent classification (8 categories) + HuggingFace sentiment analysis. Integrated into bronze_step.py. Updated Dockerfile.processing with torch+transformers+model pre-download. Pipeline now produces `customer_intent`, `sentiment_label`, `sentiment_neg/neu/pos` columns, activating all 12 NLP-dependent features.
+
+### FIXED: Pandas 3.0 ArrowStringArray conflict (session 13)
+`enrich_interactions_sentiment()` assigned string `sentiment_label` values into a column initialized as `np.nan` (float64). Pandas 3.0 with Arrow backend rejects this. Fixed by initializing float columns with `np.nan`, string column with `pd.Series([None]*len, dtype="object")`, and using `.values` for assignment.
+
+### FIXED: Categorical dtype fillna crash (session 13)
+`customer_intent` column was set as `.astype("category")` in nlp.py. Downstream `build_training_set.py` calls `fillna("no_interaction")` which fails on Categorical with unknown category. Fixed by keeping column as object dtype.
 
 ---
 
@@ -335,12 +369,12 @@ Root cause: production `build_features.py` creates 41 features, notebook uses ~5
 10. ~~**README Mermaid diagrams**~~ — DONE session 11
 11. ~~**Rebuild Docker images + push + re-trigger pipeline**~~ — DONE session 11 (pipeline SUCCEEDED)
 12. ~~**Commit + push + CI passing**~~ — DONE session 11 (`ea185bc`)
-13. **Close PR-AUC gap (~0.4 → ~0.7)** — add ~15 missing features to `build_features.py`:
-    - **Step 1: `src/features/build_features.py`** — add missing MP Risk features (~9: `std_monthly_elec_kwh`, `std_monthly_gas_m3`, `std_margin`, `min_monthly_margin`, `max_negative_margin`, `elec_price_volatility_12m`, `is_price_increase`, `rolling_margin_trend`, `province_elec_cost_trend`), Behavioral features (~6: `interaction_within_3m_of_renewal`, `complaint_near_renewal`, `is_interaction_within_30d`, `recent_complaint_flag`, `is_complaint_intent`, `intent_severity_score`), Compound features (~3: `dual_fuel_x_renewal`, `dual_fuel_x_competition`, `complaint_x_negative_sentiment`)
-    - **Step 2: `configs/feature_tiers.yaml`** — add new feature names to corresponding tier lists
-    - **Step 3: `src/models/churn_model.py`** (optional) — align threshold selection with notebook (use full training set instead of validation subset)
-14. **Rebuild Docker images + re-trigger pipeline** — validate PR-AUC >= 0.70
-15. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
+13. ~~**Close PR-AUC gap (~0.4 → ~0.7)**~~ — DONE session 12 (feature parity) + session 13 (NLP enrichment). PR-AUC = 0.751.
+14. ~~**Add NLP enrichment to pipeline**~~ — DONE session 13 (nlp.py, bronze_step integration, Dockerfile, tests)
+15. ~~**Rebuild Docker images + re-trigger pipeline**~~ — DONE session 13 (`nlp-v3-20260224-200923` SUCCEEDED)
+16. ~~**Validate PR-AUC >= 0.70**~~ — DONE session 13 (PR-AUC = 0.751, all 56 features active)
+17. ~~**Redeploy Streamlit dashboard**~~ — DONE session 13 (Processing + Streamlit Docker images rebuilt, ECS force redeployed)
+18. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
 
 ---
 
@@ -563,10 +597,17 @@ SKIPPED: tests/test_models.py::TestModelDefinitions::test_xgboost_included_when_
 - [x] Fix ruff I001 import order (DONE session 11 — s3_io.py + drift_step.py)
 - [x] Replace README ASCII diagrams with Mermaid (DONE session 11)
 - [x] Commit sessions 8-11 changes + push (DONE session 11 — ea185bc, CI passing)
-- [ ] Close PR-AUC gap: add ~15 missing features to build_features.py
-- [ ] Close PR-AUC gap: update feature_tiers.yaml with new feature names
-- [ ] Close PR-AUC gap: (optional) align threshold selection in churn_model.py
-- [ ] Rebuild Docker images + re-trigger pipeline (validate PR-AUC >= 0.70)
+- [x] Close PR-AUC gap: rewrite build_features.py for notebook parity (DONE session 12 — 7480e18)
+- [x] Close PR-AUC gap: rewrite feature_tiers.yaml (DONE session 12 — E5_full ~56 features)
+- [x] Close PR-AUC gap: align XGBoost hyperparameters (DONE session 12 — 600 trees, lr=0.05, depth=5)
+- [x] Fix test_aws_defaults (DONE session 12 — accepts both .env and code-default values)
+- [x] Rebuild Docker images + re-trigger pipeline (DONE session 12 — feature-parity-20260224-175111)
+- [x] Add NLP enrichment to pipeline (DONE session 13 — nlp.py, bronze_step, Dockerfile, 20 tests)
+- [x] Fix Pandas 3.0 ArrowStringArray conflict in sentiment (DONE session 13 — object dtype + .values)
+- [x] Fix Categorical dtype fillna crash (DONE session 13 — removed .astype("category"))
+- [x] Rebuild Docker images + re-trigger pipeline (DONE session 13 — nlp-v3-20260224-200923 SUCCEEDED)
+- [x] Validate PR-AUC >= 0.70 from pipeline results (DONE session 13 — PR-AUC = 0.751)
+- [x] Redeploy Streamlit dashboard (DONE session 13 — Processing + Streamlit Docker pushed, ECS redeployed)
 - [ ] Open PR: feature/aws-mlops-pipeline -> main
 
 ---

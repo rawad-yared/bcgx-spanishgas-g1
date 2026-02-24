@@ -150,7 +150,7 @@ graph LR
     end
 
     subgraph GOLD["Gold Layer"]
-        GM["gold_master<br/><i>1 row/customer</i><br/>41+ features across 7 tiers"]
+        GM["gold_master<br/><i>1 row/customer</i><br/>56 features across 7 tiers"]
     end
 
     CL & CA & CC & CI --> BC
@@ -183,42 +183,56 @@ graph TB
         M6["is_dual_fuel"]
     end
 
-    subgraph TMP_RISK["Tier MP Risk: Volatility"]
+    subgraph TMP_RISK["Tier MP Risk: Volatility & Trends"]
         direction LR
-        R1["elec_consump_volatility"]
-        R2["gas_consump_volatility"]
-        R3["elec_price_trend"]
-        R4["gas_price_trend"]
-        R5["margin_stability"]
-        R6["total_margin_avg"]
+        R1["std_monthly_elec_kwh"]
+        R2["std_monthly_gas_m3"]
+        R3["active_months_count"]
+        R4["std_margin"]
+        R5["min_monthly_margin"]
+        R6["max_negative_margin"]
+        R7["elec_price_trend_12m"]
+        R8["gas_price_trend_12m"]
+        R9["elec_price_volatility_12m"]
+        R10["province_elec_cost_trend"]
+        R11["elec_price_vs_province_cost_spread"]
+        R12["is_price_increase"]
+        R13["rolling_margin_trend"]
     end
 
     subgraph T2A["Tier 2A: Behavioral"]
         direction LR
         B1["interaction_count"]
         B2["days_since_last_interaction"]
-        B3["has_complaint"]
-        B4["complaint_count"]
-        B5["has_billing_issue"]
-        B6["intent_to_cancel"]
-        B7["severity_score"]
+        B3["complaint_count"]
+        B4["has_billing_issue"]
+        B5["is_cancellation_intent"]
+        B6["is_complaint_intent"]
+        B7["recent_complaint_flag"]
+        B8["intent_severity_score"]
+        B9["interaction_within_3m_of_renewal"]
+        B10["is_interaction_within_30d_of_renewal"]
+        B11["complaint_near_renewal"]
+        B12["months_since_last_change"]
     end
 
     subgraph T2B["Tier 2B: Sentiment"]
         direction LR
         S1["sentiment_label"]
-        S2["has_negative_sentiment"]
-        S3["avg_sentiment_score"]
+        S2["is_negative_sentiment"]
     end
 
     subgraph T3["Tier 3: Compound"]
         direction LR
-        C1["renewal_x_complaint"]
-        C2["high_risk_x_neg_sentiment"]
-        C3["tenure_x_interaction"]
-        C4["sales_channel_x_renewal_bucket"]
-        C5["has_interaction_x_renewal_bucket"]
-        C6["competition_x_intent"]
+        C1["is_high_risk_lifecycle"]
+        C2["is_competition_x_renewal"]
+        C3["dual_fuel_x_renewal"]
+        C4["dual_fuel_x_competition"]
+        C5["dual_fuel_x_intent"]
+        C6["complaint_x_negative_sentiment"]
+        C7["sales_channel_x_renewal_bucket"]
+        C8["has_interaction_x_renewal_bucket"]
+        C9["competition_x_intent"]
     end
 
     subgraph T1B["Tier 1B: Interaction Strings"]
@@ -346,7 +360,7 @@ graph TD
 
     subgraph CI["CI Workflow"]
         LINT["Ruff Check (lint)"]
-        TEST["Pytest (129+ tests)"]
+        TEST["Pytest (162+ tests)"]
         COV["Coverage Upload"]
         LINT --> TEST --> COV
     end
@@ -435,6 +449,7 @@ graph TB
 │   ├── data/
 │   │   ├── ingest.py                # Raw loading, bronze customer & customer-month
 │   │   ├── silver.py                # Price imputation, segmentation, margins
+│   │   ├── nlp.py                   # NLP enrichment: regex intent + HuggingFace sentiment
 │   │   └── build_training_set.py    # Model matrix, structural fills, stratified split
 │   ├── features/
 │   │   └── build_features.py        # 7 feature tiers, gold master builder
@@ -502,7 +517,7 @@ graph TB
 │   ├── ci.yml                       # Lint + test on push/PR
 │   ├── deploy.yml                   # Terraform + Docker + ECS on push to main
 │   └── retrain.yml                  # Weekly/manual Step Functions trigger
-├── tests/                           # 18 test files, 129+ tests
+├── tests/                           # 19 test files, 162+ tests
 ├── notebooks/                       # Source Jupyter notebooks (01: ETL, 02: modeling)
 ├── Dockerfile.lambda                # Lambda container image
 ├── Dockerfile.processing            # SageMaker Processing container image
@@ -546,7 +561,7 @@ cp .env.example .env
 
 # 5. Verify everything works
 make lint    # ruff check — should pass clean
-make test    # pytest — should pass 129+ tests
+make test    # pytest — should pass 162+ tests
 ```
 
 ### Running the Pipeline Locally
@@ -688,7 +703,7 @@ To enable automated deployments:
 
 ## Feature Engineering
 
-The gold master contains **41+ features** organized into 7 tiers, tested across 9 experiment configurations:
+The gold master contains **56 features** organized into 7 tiers, tested across 9 experiment configurations:
 
 | Experiment | Tiers Included | Description |
 |------------|---------------|-------------|
@@ -709,8 +724,12 @@ The gold master contains **41+ features** organized into 7 tiers, tested across 
 | Property | Value |
 |----------|-------|
 | Algorithm | XGBoost (E5_full experiment) |
+| Hyperparameters | n_estimators=600, lr=0.05, max_depth=5, subsample=0.8, colsample_bytree=0.8 |
+| Features | 56 features across 7 tiers (lifecycle, market, risk, behavioral, sentiment, compound, strings) |
+| NLP enrichment | Regex intent classification (8 categories) + HuggingFace sentiment (`cardiffnlp/twitter-roberta-base-sentiment-latest`) |
 | Target | `churned_within_horizon` (binary) |
 | Threshold | Optimized for precision at recall >= 0.70 |
+| PR-AUC | **0.751** (production pipeline, exceeds 0.70 gate) |
 | Promotion gate | PR-AUC >= 0.70 |
 | Risk tiers | Low (<40%), Medium (40-60%), High (60-80%), Critical (>80%) |
 | Retraining | Weekly (Monday 06:00 UTC) or manual trigger |
