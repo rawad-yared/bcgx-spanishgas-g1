@@ -5,10 +5,24 @@ from __future__ import annotations
 import io
 import json
 
+import numpy as np
 import boto3
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+
+def _json_default(obj):
+    """Handle numpy types for JSON serialization."""
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 def get_s3_client(region: str = "eu-west-1"):
@@ -67,4 +81,4 @@ def read_json_s3(bucket: str, key: str, region: str = "eu-west-1") -> dict:
 
 def write_json(data: dict, bucket: str, key: str, region: str = "eu-west-1") -> None:
     s3 = get_s3_client(region)
-    s3.put_object(Bucket=bucket, Key=key, Body=json.dumps(data).encode("utf-8"))
+    s3.put_object(Bucket=bucket, Key=key, Body=json.dumps(data, default=_json_default).encode("utf-8"))

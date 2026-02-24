@@ -82,8 +82,16 @@
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.mode",
-          "StringEquals": "train",
+          "And": [
+            {
+              "Variable": "$.mode",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.mode",
+              "StringEquals": "train"
+            }
+          ],
           "Next": "TrainModel"
         }
       ],

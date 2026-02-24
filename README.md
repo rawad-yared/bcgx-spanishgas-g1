@@ -43,7 +43,7 @@ SpanishGas is a decision intelligence platform for a Spanish gas and electricity
 3. **Scores** all customers with churn probability, risk tier assignment, and expected monthly loss
 4. **Detects drift** using Kolmogorov-Smirnov tests on features and predictions
 5. **Generates recommendations** mapping risk tiers to retention actions with policy guardrails
-6. **Serves** results through a 6-page Streamlit dashboard auto-deployed on AWS ECS Fargate
+6. **Serves** results through an 8-page Streamlit dashboard auto-deployed on AWS ECS Fargate
 7. **Orchestrates** everything via AWS Step Functions, triggered automatically on S3 data upload
 
 ---
@@ -57,7 +57,7 @@ The system consumes **7 raw datasets** that describe customers, their contracts,
 | 1 | **churn_label** | CSV | 1 row/customer | Binary churn outcome within a configurable horizon (days). Includes `churned_within_horizon`, `churn_effective_date`, and `label_date`. |
 | 2 | **customer_attributes** | CSV | 1 row/customer | Static customer demographics: `province`, `customer_type`, `tariff_type`, `signup_date`, `product_bundle`. |
 | 3 | **customer_contracts** | CSV | 1 row/contract | Contract lifecycle: `contract_start_date`, `contract_end_date`, `contract_status`, `contract_term_months`, `product_type`. |
-| 4 | **consumption_hourly_2024** | CSV | 1 row/hour/customer | Hourly electricity (kWh) and gas (m3) meter readings. ~17M rows for 20K customers across 2024. Gas converted to kWh at 11 kWh/m3. |
+| 4 | **consumption_hourly_2024** | Parquet | 1 row/hour/customer | Hourly electricity (kWh) and gas (m3) meter readings. ~17M rows for 20K customers across 2024. Gas converted to kWh at 11 kWh/m3. |
 | 5 | **price_history** | CSV | 1 row/date/product/tariff | Daily electricity and gas prices per tariff type and region, plus market benchmark prices for delta calculation. |
 | 6 | **costs_by_province_month** | CSV | 1 row/month/province | Monthly variable costs, fixed costs, and network costs per province and commodity. |
 | 7 | **customer_interactions** | JSON | 1 row/interaction | Customer service interactions: `channel`, `interaction_type`, `sentiment_score`, `resolution_status`. Includes complaints, billing issues, and cancellation intents. |
@@ -66,38 +66,59 @@ The system consumes **7 raw datasets** that describe customers, their contracts,
 
 ## High-Level Architecture
 
-```
-                                    SPANISHGAS MLOps PLATFORM
- ┌──────────────────────────────────────────────────────────────────────────────────┐
- │                                                                                  │
- │   ┌─────────┐    ┌──────────┐    ┌──────────────────────────────────────────┐    │
- │   │  Raw    │───>│  Lambda  │───>│          Step Functions Pipeline         │    │
- │   │  CSV/   │ S3 │ Trigger  │    │                                          │    │
- │   │  JSON   │ put│          │    │  Bronze ─> Silver ─> Gold ─> Train/Score │    │
- │   └─────────┘    └──────────┘    │          ─> Evaluate ─> Drift            │    │
- │                                  └──────────────┬───────────────────────────┘    │
- │                                                 │                                │
- │                    ┌────────────────────────────┼────────────────────┐           │
- │                    │              S3 Data Lake   │                    │           │
- │                    │  raw/ bronze/ silver/ gold/ │ models/ scored/    │           │
- │                    └────────────────────────────┼────────────────────┘           │
- │                                                 │                                │
- │   ┌──────────────┐    ┌──────────────┐    ┌────┴─────────┐    ┌─────────────┐   │
- │   │  CloudWatch  │    │  SNS Alerts  │    │  DynamoDB    │    │  SageMaker  │   │
- │   │  Alarms      │    │  Email       │    │  Manifest    │    │  Registry   │   │
- │   └──────────────┘    └──────────────┘    └──────────────┘    └─────────────┘   │
- │                                                                                  │
- │   ┌──────────────────────────────────────────────────────────────────────────┐   │
- │   │  Streamlit Dashboard (ECS Fargate + ALB)                                │   │
- │   │  Overview | Model Performance | Drift | Customer Risk | Recos | Status  │   │
- │   └──────────────────────────────────────────────────────────────────────────┘   │
- │                                                                                  │
- │   ┌──────────────────────────────────────────────────────────────────────────┐   │
- │   │  GitHub Actions CI/CD                                                    │   │
- │   │  CI (lint+test) ─> Terraform Apply ─> Docker Build/Push ─> ECS Deploy   │   │
- │   └──────────────────────────────────────────────────────────────────────────┘   │
- │                                                                                  │
- └──────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph Ingestion
+        RAW["Raw CSV / JSON / Parquet"]
+        S3PUT(("S3 Put Event"))
+        LAMBDA["Lambda Trigger"]
+    end
+
+    subgraph Orchestration
+        SFN["Step Functions Pipeline"]
+        BRONZE["Bronze ETL"]
+        SILVER["Silver ETL"]
+        GOLD["Gold ETL"]
+        TRAIN["Train Model"]
+        EVAL["Evaluate Model"]
+        SCORE["Score Customers"]
+        DRIFT["Drift Check"]
+    end
+
+    subgraph Storage
+        S3["S3 Data Lake<br/>raw/ bronze/ silver/ gold/<br/>models/ scored/ monitoring/"]
+        DYNAMO["DynamoDB<br/>Manifest Table"]
+        REGISTRY["SageMaker<br/>Model Registry"]
+    end
+
+    subgraph Monitoring
+        CW["CloudWatch Alarms"]
+        SNS["SNS Email Alerts"]
+    end
+
+    subgraph Serving
+        ALB["Application Load Balancer"]
+        ECS["ECS Fargate"]
+        STREAMLIT["Streamlit Dashboard<br/>8 pages"]
+    end
+
+    subgraph CICD["CI/CD"]
+        GHA["GitHub Actions"]
+        TF["Terraform IaC"]
+        ECR["ECR Container Registry<br/>3 images"]
+    end
+
+    RAW --> S3PUT --> LAMBDA --> SFN
+    SFN --> BRONZE --> SILVER --> GOLD --> TRAIN --> EVAL --> SCORE --> DRIFT
+    BRONZE & SILVER & GOLD & TRAIN & SCORE & DRIFT <--> S3
+    LAMBDA <--> DYNAMO
+    EVAL --> REGISTRY
+    DRIFT --> SNS
+    DRIFT --> CW
+    S3 --> ECS
+    ALB --> ECS --> STREAMLIT
+    GHA --> TF --> ECR
+    ECR --> LAMBDA & ECS
 ```
 
 ---
@@ -106,288 +127,298 @@ The system consumes **7 raw datasets** that describe customers, their contracts,
 
 The ETL pipeline follows a **medallion architecture** (bronze/silver/gold) implemented as SageMaker Processing Jobs orchestrated by Step Functions.
 
+```mermaid
+graph LR
+    subgraph RAW["Raw Layer (7 files)"]
+        CL["churn_label.csv"]
+        CA["customer_attributes.csv"]
+        CC["customer_contracts.csv"]
+        CI["customer_interactions.json"]
+        CH["consumption_hourly.parquet"]
+        PH["price_history.csv"]
+        CP["costs_by_province.csv"]
+    end
+
+    subgraph BRONZE["Bronze Layer"]
+        BC["bronze_customer<br/><i>1 row/customer</i><br/>merge on customer_id"]
+        BCM["bronze_customer_month<br/><i>1 row/cust/month</i><br/>tariff splits, gas kWh conversion"]
+    end
+
+    subgraph SILVER["Silver Layer"]
+        SC["silver_customer<br/>+ price imputation<br/>+ segments (Res/SME/Corp)<br/>+ channel flags"]
+        SCM["silver_customer_month<br/>+ gross margins<br/>+ price deltas<br/>+ cost allocations"]
+    end
+
+    subgraph GOLD["Gold Layer"]
+        GM["gold_master<br/><i>1 row/customer</i><br/>41+ features across 7 tiers"]
+    end
+
+    CL & CA & CC & CI --> BC
+    CH & PH & CP --> BCM
+    BC --> SC
+    BCM --> SCM
+    SC & SCM --> GM
 ```
- ┌─────────────────────────────────────────────────────────────────────────────┐
- │                        DATA PIPELINE (Medallion ETL)                        │
- │                                                                             │
- │  RAW LAYER                 BRONZE LAYER              SILVER LAYER           │
- │  ─────────                 ────────────              ────────────           │
- │  7 source files            2 merged tables           Enriched tables        │
- │                                                                             │
- │  churn_label.csv ─────┐                                                    │
- │  customer_attributes ──┤   bronze_customer           silver_customer        │
- │  customer_contracts ───┼──> (1 row/customer)  ──────> + price imputation    │
- │  customer_interactions ┘   merge on customer_id      + segments (Res/      │
- │                                                        SME/Corp)            │
- │  consumption_hourly ───┐                              + channel flags       │
- │  price_history ────────┼──> bronze_customer_month ──> silver_customer_month │
- │  costs_by_province ────┘   (1 row/cust/month)        + gross margins       │
- │                            + tariff tier splits       + price deltas        │
- │                            + gas kWh conversion       + cost allocations    │
- │                                                                             │
- │                                                                             │
- │  GOLD LAYER                                                                 │
- │  ──────────                                                                 │
- │  gold_master (1 row/customer) ─ 40+ features across 7 tiers:               │
- │                                                                             │
- │  ┌─────────────────┬───────────────┬──────────────────┬──────────────────┐  │
- │  │ Tier 1A:        │ Tier MP Core: │ Tier MP Risk:    │ Tier 2A:         │  │
- │  │ Lifecycle       │ Market        │ Volatility       │ Behavioral       │  │
- │  │ ─────────       │ ──────        │ ──────────       │ ──────────       │  │
- │  │ months_to_      │ avg_elec_     │ elec_consump_    │ interaction_     │  │
- │  │  renewal        │  consumption  │  volatility      │  count           │  │
- │  │ tenure_months   │ avg_gas_      │ gas_consump_     │ days_since_last  │  │
- │  │ renewal_bucket  │  consumption  │  volatility      │ has_complaint    │  │
- │  │ contract_term   │ avg_elec_     │ elec_price_      │ complaint_count  │  │
- │  │ has_active_     │  price        │  trend           │ has_billing_     │  │
- │  │  contract       │ avg_gas_price │ gas_price_trend  │  issue           │  │
- │  │                 │ price_vs_     │ margin_stability │ intent_to_cancel │  │
- │  │                 │  benchmark    │ total_margin_avg │ severity_score   │  │
- │  │                 │ is_dual_fuel  │                  │                  │  │
- │  ├─────────────────┼───────────────┼──────────────────┼──────────────────┤  │
- │  │ Tier 2B:        │ Tier 3:       │ Tier 1B:         │                  │  │
- │  │ Sentiment       │ Compound      │ Interaction Str  │                  │  │
- │  │ ─────────       │ ────────      │ ───────────────  │                  │  │
- │  │ sentiment_label │ renewal_x_    │ lifecycle_string │                  │  │
- │  │ has_negative_   │  complaint    │ market_string    │                  │  │
- │  │  sentiment      │ high_risk_x_  │ behavioral_      │                  │  │
- │  │ avg_sentiment_  │  neg_sentim   │  string          │                  │  │
- │  │  score          │ tenure_x_     │                  │                  │  │
- │  │                 │  interaction  │                  │                  │  │
- │  └─────────────────┴───────────────┴──────────────────┴──────────────────┘  │
- └─────────────────────────────────────────────────────────────────────────────┘
+
+### Feature Tiers in Gold Master
+
+```mermaid
+graph TB
+    subgraph T1A["Tier 1A: Lifecycle"]
+        direction LR
+        L1["months_to_renewal"]
+        L2["tenure_months"]
+        L3["renewal_bucket"]
+        L4["contract_term"]
+        L5["has_active_contract"]
+    end
+
+    subgraph TMP_CORE["Tier MP Core: Market & Pricing"]
+        direction LR
+        M1["avg_monthly_elec_kwh"]
+        M2["avg_monthly_gas_m3"]
+        M3["avg_elec_price"]
+        M4["avg_gas_price"]
+        M5["price_vs_benchmark"]
+        M6["is_dual_fuel"]
+    end
+
+    subgraph TMP_RISK["Tier MP Risk: Volatility"]
+        direction LR
+        R1["elec_consump_volatility"]
+        R2["gas_consump_volatility"]
+        R3["elec_price_trend"]
+        R4["gas_price_trend"]
+        R5["margin_stability"]
+        R6["total_margin_avg"]
+    end
+
+    subgraph T2A["Tier 2A: Behavioral"]
+        direction LR
+        B1["interaction_count"]
+        B2["days_since_last_interaction"]
+        B3["has_complaint"]
+        B4["complaint_count"]
+        B5["has_billing_issue"]
+        B6["intent_to_cancel"]
+        B7["severity_score"]
+    end
+
+    subgraph T2B["Tier 2B: Sentiment"]
+        direction LR
+        S1["sentiment_label"]
+        S2["has_negative_sentiment"]
+        S3["avg_sentiment_score"]
+    end
+
+    subgraph T3["Tier 3: Compound"]
+        direction LR
+        C1["renewal_x_complaint"]
+        C2["high_risk_x_neg_sentiment"]
+        C3["tenure_x_interaction"]
+        C4["sales_channel_x_renewal_bucket"]
+        C5["has_interaction_x_renewal_bucket"]
+        C6["competition_x_intent"]
+    end
+
+    subgraph T1B["Tier 1B: Interaction Strings"]
+        direction LR
+        IS1["lifecycle_string"]
+        IS2["market_string"]
+        IS3["behavioral_string"]
+    end
 ```
 
 ---
 
 ## ML Training & Evaluation Architecture
 
-```
- ┌─────────────────────────────────────────────────────────────────────────────┐
- │                     ML TRAINING & EVALUATION PIPELINE                       │
- │                                                                             │
- │  Gold Master                                                                │
- │      │                                                                      │
- │      ▼                                                                      │
- │  ┌──────────────────┐    ┌────────────────────────────────┐                │
- │  │ Build Training   │    │ Preprocessing Pipeline         │                │
- │  │ Set              │    │ (ColumnTransformer)            │                │
- │  │ ──────────────   │    │                                │                │
- │  │ structural fills │───>│ numeric: StandardScaler        │                │
- │  │ stratified split │    │ categorical: OneHotEncoder     │                │
- │  │ (80/20)          │    │ passthrough: binary flags      │                │
- │  └──────────────────┘    └──────────────┬─────────────────┘                │
- │                                         │                                   │
- │                                         ▼                                   │
- │                          ┌──────────────────────────┐                      │
- │                          │ Model Training            │                      │
- │                          │ ──────────────            │                      │
- │                          │ - Logistic Regression     │                      │
- │                          │ - Random Forest           │                      │
- │                          │ - XGBoost (champion)      │                      │
- │                          └──────────────┬───────────┘                      │
- │                                         │                                   │
- │                                         ▼                                   │
- │                          ┌──────────────────────────┐                      │
- │                          │ Threshold Optimization    │                      │
- │                          │ ──────────────────────    │                      │
- │                          │ Maximize precision at     │                      │
- │                          │ recall >= 0.70            │                      │
- │                          └──────────────┬───────────┘                      │
- │                                         │                                   │
- │                                         ▼                                   │
- │                          ┌──────────────────────────┐                      │
- │                          │ Evaluation & Promotion    │                      │
- │                          │ ──────────────────────    │                      │
- │                          │ PR-AUC >= 0.70 gate       │                      │
- │                          │ ROC-AUC, precision,       │                      │
- │                          │ recall, confusion matrix   │                      │
- │                          └──────────────┬───────────┘                      │
- │                                         │                                   │
- │                              ┌──────────┴──────────┐                       │
- │                              ▼                     ▼                        │
- │                     ┌──────────────┐     ┌──────────────┐                  │
- │                     │ S3: models/  │     │ SageMaker    │                  │
- │                     │ pipeline.pkl │     │ Model        │                  │
- │                     │ metadata.json│     │ Registry     │                  │
- │                     │ evaluation/  │     │ (approve/    │                  │
- │                     └──────────────┘     │  reject)     │                  │
- │                                          └──────────────┘                  │
- └─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    GM["Gold Master"] --> BTS["Build Training Set<br/>structural fills<br/>stratified split (80/20)"]
+    BTS --> PP["Preprocessing Pipeline<br/>(ColumnTransformer)<br/>numeric: StandardScaler<br/>categorical: OneHotEncoder<br/>passthrough: binary flags"]
+    PP --> TRAIN["Model Training"]
+
+    TRAIN --> LR["Logistic Regression"]
+    TRAIN --> RF["Random Forest"]
+    TRAIN --> XGB["XGBoost<br/><b>(champion)</b>"]
+
+    XGB --> THRESH["Threshold Optimization<br/>maximize precision<br/>at recall >= 0.70"]
+    THRESH --> EVAL["Evaluation & Promotion Gate"]
+
+    EVAL -->|"PR-AUC >= 0.70"| PASS["Model Promoted"]
+    EVAL -->|"PR-AUC < 0.70"| FAIL["Model Rejected"]
+
+    PASS --> S3_MODELS["S3: models/<br/>pipeline.pkl<br/>metadata.json<br/>eval.json"]
+    PASS --> SM_REG["SageMaker<br/>Model Registry<br/>(Approved)"]
+
+    FAIL --> SM_REJ["SageMaker<br/>Model Registry<br/>(Rejected)"]
+
+    style XGB fill:#2e7d32,color:#fff
+    style PASS fill:#2e7d32,color:#fff
+    style FAIL fill:#c62828,color:#fff
 ```
 
 ---
 
 ## Monitoring & Drift Detection Architecture
 
-```
- ┌─────────────────────────────────────────────────────────────────────────────┐
- │                    MONITORING & DRIFT DETECTION                             │
- │                                                                             │
- │  ┌─────────────────────┐     ┌──────────────────────────────┐              │
- │  │ Reference Store     │     │ Current Scoring Run          │              │
- │  │ (S3 JSON)           │     │ (gold_master + scored)       │              │
- │  │ feature_distributions│    └──────────────┬───────────────┘              │
- │  │ prediction_histogram │                   │                               │
- │  └──────────┬──────────┘                    │                               │
- │             │                               │                               │
- │             ▼                               ▼                               │
- │  ┌──────────────────────────────────────────────────┐                      │
- │  │ Drift Detection (KS Test)                        │                      │
- │  │ ─────────────────────────                        │                      │
- │  │ For each numeric feature:                        │                      │
- │  │   KS statistic + p-value vs reference            │                      │
- │  │   Drift if p < 0.01                              │                      │
- │  │                                                  │                      │
- │  │ Prediction drift:                                │                      │
- │  │   KS test on churn_proba distribution            │                      │
- │  └──────────────────┬───────────────────────────────┘                      │
- │                     │                                                       │
- │          ┌──────────┴──────────┐                                           │
- │          ▼                     ▼                                            │
- │  ┌──────────────┐     ┌──────────────────────────────┐                    │
- │  │ S3: drift    │     │ Alerting                      │                    │
- │  │ results JSON │     │ ────────                      │                    │
- │  └──────────────┘     │ SNS email if drift detected   │                    │
- │                       │ CloudWatch metric: drift_score │                    │
- │                       │ CloudWatch alarm threshold     │                    │
- │                       └──────────────────────────────┘                    │
- │                                                                             │
- │  ┌──────────────────────────────────────────────────────────────────┐      │
- │  │ Data Quality Checks (every pipeline run)                         │      │
- │  │ ────────────────────                                             │      │
- │  │ - Null rate thresholds per layer (bronze: 20%, silver: 5%,       │      │
- │  │   gold: 2%)                                                      │      │
- │  │ - Duplicate key detection                                        │      │
- │  │ - Schema validation (expected columns + dtypes)                  │      │
- │  │ - Numeric range checks                                           │      │
- │  └──────────────────────────────────────────────────────────────────┘      │
- └─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Inputs
+        REF["Reference Store<br/>(S3 JSON)<br/>feature distributions<br/>prediction histogram"]
+        SCORED["Current Scoring Run<br/>gold_master + scored"]
+    end
+
+    subgraph Detection["Drift Detection"]
+        KS["KS Test (per feature)<br/>statistic + p-value<br/>drift if p < 0.01"]
+        PRED["Prediction Drift<br/>KS test on churn_proba<br/>distribution"]
+    end
+
+    subgraph Outputs
+        S3D["S3: monitoring/<br/>drift_results.json"]
+        SNS_A["SNS Email Alert<br/>(if drift detected)"]
+        CW_M["CloudWatch Metrics<br/>drift_score<br/>drift_detected"]
+        CW_A["CloudWatch Alarm<br/>threshold trigger"]
+    end
+
+    subgraph Quality["Data Quality Checks (every run)"]
+        NR["Null rate thresholds<br/>bronze: 20% | silver: 5% | gold: 2%"]
+        DK["Duplicate key detection"]
+        SV["Schema validation<br/>expected columns + dtypes"]
+        RC["Numeric range checks"]
+    end
+
+    REF & SCORED --> KS & PRED
+    KS & PRED --> S3D
+    KS & PRED --> SNS_A
+    KS & PRED --> CW_M --> CW_A
 ```
 
 ---
 
 ## Serving & Dashboard Architecture
 
-```
- ┌─────────────────────────────────────────────────────────────────────────────┐
- │                     STREAMLIT DASHBOARD (ECS Fargate)                       │
- │                                                                             │
- │  Internet ──> ALB (:80) ──> ECS Task (:8501) ──> Streamlit App             │
- │                                                                             │
- │  ┌───────────────────────────────────────────────────────────────────────┐  │
- │  │                                                                       │  │
- │  │  ┌──────────┐ ┌──────────────┐ ┌───────────┐ ┌──────────────────┐   │  │
- │  │  │ Overview │ │ Model Perf   │ │ Drift     │ │ Customer Risk    │   │  │
- │  │  │ ──────── │ │ ──────────   │ │ Monitor   │ │ ─────────────    │   │  │
- │  │  │ KPI cards│ │ PR-AUC       │ │ ───────── │ │ Risk tier pie    │   │  │
- │  │  │ At-risk %│ │ ROC-AUC      │ │ KS stats  │ │ Critical/High   │   │  │
- │  │  │ Monthly  │ │ Confusion    │ │ Feature   │ │ Expected loss    │   │  │
- │  │  │ loss     │ │ matrix       │ │ drift tbl │ │ Filterable       │   │  │
- │  │  │ Pipeline │ │ Precision    │ │ Bar chart │ │ customer table   │   │  │
- │  │  │ runs     │ │ Recall       │ │ Pred drift│ │                  │   │  │
- │  │  └──────────┘ └──────────────┘ └───────────┘ └──────────────────┘   │  │
- │  │                                                                       │  │
- │  │  ┌──────────────────┐  ┌──────────────────────────────────────────┐  │  │
- │  │  │ Recommendations  │  │ Pipeline Status                          │  │  │
- │  │  │ ───────────────  │  │ ───────────────                          │  │  │
- │  │  │ Action breakdown │  │ Total/completed/failed/in-progress runs  │  │  │
- │  │  │ By risk tier     │  │ Filterable run history table             │  │  │
- │  │  │ Retention offers │  │ Status from DynamoDB manifest            │  │  │
- │  │  │ Timing windows   │  │                                          │  │  │
- │  │  └──────────────────┘  └──────────────────────────────────────────┘  │  │
- │  └───────────────────────────────────────────────────────────────────────┘  │
- │                                                                             │
- │  Data Sources:                                                              │
- │  - S3: scored/scored_customers.parquet, models/evaluation.json,             │
- │         monitoring/drift_results.json, scored/recommendations.parquet       │
- │  - DynamoDB: pipeline manifest table (run history)                          │
- │  - Configured via env vars: DATA_SOURCE, S3_BUCKET, AWS_REGION             │
- └─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph LR
+    INTERNET["Internet"] --> ALB["ALB<br/>:80"]
+    ALB --> ECS["ECS Fargate Task<br/>:8501"]
+    ECS --> APP["Streamlit App"]
+
+    subgraph Pages["Dashboard Pages"]
+        direction TB
+        P1["Overview<br/>KPI cards, at-risk %,<br/>monthly loss, pipeline runs"]
+        P2["Data Explorer<br/>Browse raw/bronze/silver/gold<br/>data tables"]
+        P3["Model Performance<br/>PR-AUC, ROC-AUC, confusion<br/>matrix, precision, recall"]
+        P4["Drift Monitor<br/>KS stats, feature drift<br/>table, bar chart"]
+        P5["Customer Risk<br/>Risk tier distribution,<br/>expected loss, customer table"]
+        P6["Customer Lookup<br/>Individual risk profile,<br/>financial impact, reason codes"]
+        P7["Recommendations<br/>Action breakdown by tier,<br/>retention offers, timing"]
+        P8["Pipeline Status<br/>Run history, success/fail<br/>counts from DynamoDB"]
+    end
+
+    APP --> Pages
+
+    subgraph Data["Data Sources"]
+        S3S["S3: scored/scored_customers.parquet"]
+        S3E["S3: models/eval.json"]
+        S3DR["S3: monitoring/drift_results.json"]
+        S3R["S3: scored/recommendations.parquet"]
+        DDB["DynamoDB: manifest table"]
+    end
+
+    Pages --> Data
 ```
 
 ---
 
 ## CI/CD & Deployment Architecture
 
-```
- ┌─────────────────────────────────────────────────────────────────────────────┐
- │                        CI/CD (GitHub Actions)                               │
- │                                                                             │
- │  push to feature/**  ──────>  CI Workflow                                   │
- │  pull_request to main ────>  ┌─────────────────────────┐                   │
- │                              │ 1. ruff check (lint)     │                   │
- │                              │ 2. pytest (130+ tests)   │                   │
- │                              │ 3. coverage upload       │                   │
- │                              └─────────────────────────┘                   │
- │                                                                             │
- │  push to main  ───────────>  Deploy Workflow                                │
- │                              ┌─────────────────────────┐                   │
- │                              │ 1. CI (lint + test)      │                   │
- │                              │ 2. AWS OIDC login        │                   │
- │                              │ 3. terraform init/plan/  │                   │
- │                              │    apply                 │                   │
- │                              │ 4. Docker build + push:  │                   │
- │                              │    - Lambda image        │                   │
- │                              │    - Processing image    │                   │
- │                              │    - Streamlit image     │                   │
- │                              │ 5. Update Lambda code    │                   │
- │                              │ 6. Force ECS redeploy    │                   │
- │                              └─────────────────────────┘                   │
- │                                                                             │
- │  schedule (Mon 06:00 UTC)    Retrain Workflow                               │
- │  or manual dispatch  ──────> ┌─────────────────────────┐                   │
- │                              │ 1. AWS OIDC login        │                   │
- │                              │ 2. Start Step Functions   │                   │
- │                              │    execution              │                   │
- │                              │ 3. Poll for completion    │                   │
- │                              │    (60 min timeout)       │                   │
- │                              └─────────────────────────┘                   │
- │                                                                             │
- │  Auth: GitHub OIDC ──> IAM Identity Provider ──> Deploy Role (scoped)      │
- └─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Triggers
+        PUSH_F["Push to feature/**"]
+        PR["Pull Request to main"]
+        PUSH_M["Push to main"]
+        SCHED["Schedule<br/>Mon 06:00 UTC"]
+        MANUAL["Manual Dispatch"]
+    end
+
+    subgraph CI["CI Workflow"]
+        LINT["Ruff Check (lint)"]
+        TEST["Pytest (129+ tests)"]
+        COV["Coverage Upload"]
+        LINT --> TEST --> COV
+    end
+
+    subgraph Deploy["Deploy Workflow"]
+        OIDC["AWS OIDC Login"]
+        TF_PLAN["Terraform Init/Plan/Apply"]
+        DOCKER["Docker Build + Push<br/>Lambda | Processing | Streamlit"]
+        UPDATE_LAMBDA["Update Lambda Code"]
+        ECS_DEPLOY["Force ECS Redeploy"]
+        OIDC --> TF_PLAN --> DOCKER --> UPDATE_LAMBDA --> ECS_DEPLOY
+    end
+
+    subgraph Retrain["Retrain Workflow"]
+        OIDC2["AWS OIDC Login"]
+        SFN_START["Start Step Functions"]
+        POLL["Poll for Completion<br/>(60 min timeout)"]
+        OIDC2 --> SFN_START --> POLL
+    end
+
+    PUSH_F & PR --> CI
+    PUSH_M --> CI --> Deploy
+    SCHED & MANUAL --> Retrain
+
+    subgraph Auth["Authentication"]
+        GH_OIDC["GitHub OIDC<br/>Identity Provider"]
+        IAM_ROLE["IAM Deploy Role<br/>(scoped permissions)"]
+        GH_OIDC --> IAM_ROLE
+    end
+
+    Deploy & Retrain --> Auth
 ```
 
 ---
 
 ## Infrastructure Architecture
 
-```
- ┌─────────────────────────────────────────────────────────────────────────────┐
- │                TERRAFORM INFRASTRUCTURE (11 modules)                        │
- │                                                                             │
- │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐       │
- │  │ S3       │  │ DynamoDB │  │ ECR      │  │ IAM                  │       │
- │  │ ──       │  │ ──────── │  │ ───      │  │ ───                  │       │
- │  │ Data     │  │ Manifest │  │ Lambda   │  │ Lambda role          │       │
- │  │ bucket   │  │ table    │  │ Process  │  │ SFN role             │       │
- │  │ Lifecycle│  │ PAY_PER_ │  │ Streamlit│  │ SageMaker role       │       │
- │  │ rules    │  │ REQUEST  │  │ repos    │  │ ECS execution role   │       │
- │  │ Encrypt  │  │          │  │          │  │ ECS task role         │       │
- │  └──────────┘  └──────────┘  └──────────┘  └──────────────────────┘       │
- │                                                                             │
- │  ┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌──────────────────┐       │
- │  │ Lambda   │  │ Step         │  │ SageMaker│  │ Monitoring       │       │
- │  │ ──────   │  │ Functions    │  │ ──────── │  │ ──────────       │       │
- │  │ Pipeline │  │ ──────────── │  │ Model    │  │ SNS topic        │       │
- │  │ trigger  │  │ 7-step ASL   │  │ Package  │  │ CW alarms:       │       │
- │  │ S3 event │  │ workflow     │  │ Group    │  │  lambda-errors   │       │
- │  │ notify   │  │ .sync calls  │  │          │  │  sfn-failures    │       │
- │  └──────────┘  └──────────────┘  └──────────┘  │  drift-detected  │       │
- │                                                  └──────────────────┘       │
- │  ┌──────────────┐  ┌──────────────────┐  ┌────────────────────────┐       │
- │  │ Networking   │  │ ECS              │  │ GitHub OIDC            │       │
- │  │ ──────────   │  │ ───              │  │ ───────────            │       │
- │  │ Default VPC  │  │ Fargate cluster  │  │ Identity provider      │       │
- │  │ ALB sec grp  │  │ Task definition  │  │ Deploy role            │       │
- │  │ ECS sec grp  │  │ Service          │  │ Scoped permissions     │       │
- │  │              │  │ ALB + listener   │  │                        │       │
- │  │              │  │ Target group     │  │                        │       │
- │  │              │  │ CW log group     │  │                        │       │
- │  └──────────────┘  └──────────────────┘  └────────────────────────┘       │
- │                                                                             │
- │  State Backend: S3 (spanishgas-terraform-state) + DynamoDB lock table      │
- └─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph Terraform["Terraform Infrastructure (11 modules)"]
+        direction TB
+
+        subgraph Storage_Infra["Storage"]
+            S3_MOD["S3<br/>Data bucket<br/>lifecycle rules<br/>encryption"]
+            DDB_MOD["DynamoDB<br/>Manifest table<br/>PAY_PER_REQUEST"]
+            ECR_MOD["ECR<br/>3 repos: Lambda,<br/>Processing, Streamlit"]
+        end
+
+        subgraph Compute_Infra["Compute"]
+            LAMBDA_MOD["Lambda<br/>Pipeline trigger<br/>S3 event notification"]
+            SFN_MOD["Step Functions<br/>8-step ASL workflow<br/>.sync calls"]
+            SM_MOD["SageMaker<br/>Model Package Group"]
+        end
+
+        subgraph Network_Infra["Networking & Serving"]
+            NET_MOD["Networking<br/>Default VPC<br/>ALB + ECS<br/>security groups"]
+            ECS_MOD["ECS<br/>Fargate cluster<br/>task definition, service<br/>ALB + target group<br/>CloudWatch logs"]
+        end
+
+        subgraph Security_Infra["Security & Monitoring"]
+            IAM_MOD["IAM<br/>5 roles: Lambda, SFN,<br/>SageMaker, ECS exec,<br/>ECS task"]
+            MON_MOD["Monitoring<br/>SNS topic<br/>CW alarms: lambda-errors,<br/>sfn-failures, drift-detected"]
+            OIDC_MOD["GitHub OIDC<br/>Identity provider<br/>Deploy role (scoped)"]
+        end
+    end
+
+    subgraph Backend["State Backend"]
+        S3_STATE["S3 Bucket<br/>(terraform state)"]
+        DDB_LOCK["DynamoDB Table<br/>(state locking)"]
+    end
+
+    Terraform --> Backend
 ```
 
 ---
@@ -427,7 +458,7 @@ The ETL pipeline follows a **medallion architecture** (bronze/silver/gold) imple
 │   │       ├── gold_step.py         # SageMaker Processing: silver -> gold
 │   │       ├── train_step.py        # SageMaker Processing: train XGBoost
 │   │       ├── evaluate_step.py     # SageMaker Processing: evaluate + promote gate
-│   │       ├── score_step.py        # SageMaker Processing: batch scoring
+│   │       ├── score_step.py        # SageMaker Processing: batch scoring + recommendations
 │   │       └── drift_step.py        # SageMaker Processing: KS drift detection
 │   ├── monitoring/
 │   │   ├── drift.py                 # KS-test feature + prediction drift
@@ -439,9 +470,11 @@ The ETL pipeline follows a **medallion architecture** (bronze/silver/gold) imple
 │       ├── data_loader.py           # Cached loading (local / S3 / DynamoDB)
 │       └── pages/
 │           ├── overview.py          # Executive KPI dashboard
+│           ├── data_explorer.py     # Browse data across all pipeline layers
 │           ├── model_performance.py # PR-AUC, confusion matrix, metrics
 │           ├── drift_monitor.py     # Feature drift table + KS bar chart
 │           ├── customer_risk.py     # Risk tier distribution, customer table
+│           ├── customer_lookup.py   # Individual customer risk profile + financials
 │           ├── recommendations.py   # Retention actions, filterable table
 │           └── pipeline_status.py   # Run history from DynamoDB manifest
 ├── infra/terraform/
@@ -469,7 +502,7 @@ The ETL pipeline follows a **medallion architecture** (bronze/silver/gold) imple
 │   ├── ci.yml                       # Lint + test on push/PR
 │   ├── deploy.yml                   # Terraform + Docker + ECS on push to main
 │   └── retrain.yml                  # Weekly/manual Step Functions trigger
-├── tests/                           # 17 test files, 130+ tests
+├── tests/                           # 18 test files, 129+ tests
 ├── notebooks/                       # Source Jupyter notebooks (01: ETL, 02: modeling)
 ├── Dockerfile.lambda                # Lambda container image
 ├── Dockerfile.processing            # SageMaker Processing container image
@@ -513,7 +546,7 @@ cp .env.example .env
 
 # 5. Verify everything works
 make lint    # ruff check — should pass clean
-make test    # pytest — should pass 130+ tests
+make test    # pytest — should pass 129+ tests
 ```
 
 ### Running the Pipeline Locally
@@ -602,16 +635,16 @@ terraform apply -var-file=environments/dev.tfvars
 aws ecr get-login-password --region eu-west-1 | \
   docker login --username AWS --password-stdin YOUR_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com
 
-# Build and push all 3 images (use --provenance=false for Lambda compatibility)
+# Build and push all 3 images (use --platform linux/amd64 --provenance=false for Lambda/SageMaker)
 ECR=YOUR_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com
 
-docker build --provenance=false -f Dockerfile.lambda -t $ECR/YOUR-PROJECT-dev-lambda:latest .
+docker build --platform linux/amd64 --provenance=false -f Dockerfile.lambda -t $ECR/YOUR-PROJECT-dev-lambda:latest .
 docker push $ECR/YOUR-PROJECT-dev-lambda:latest
 
-docker build --provenance=false -f Dockerfile.processing -t $ECR/YOUR-PROJECT-dev-processing:latest .
+docker build --platform linux/amd64 --provenance=false -f Dockerfile.processing -t $ECR/YOUR-PROJECT-dev-processing:latest .
 docker push $ECR/YOUR-PROJECT-dev-processing:latest
 
-docker build --provenance=false -f Dockerfile.streamlit -t $ECR/YOUR-PROJECT-dev-streamlit:latest .
+docker build --platform linux/amd64 --provenance=false -f Dockerfile.streamlit -t $ECR/YOUR-PROJECT-dev-streamlit:latest .
 docker push $ECR/YOUR-PROJECT-dev-streamlit:latest
 ```
 
@@ -639,7 +672,7 @@ aws s3 cp data/raw/ s3://YOUR-BUCKET/raw/ --recursive
 # Or manually start via Step Functions
 aws stepfunctions start-execution \
   --state-machine-arn YOUR_SFN_ARN \
-  --input '{"mode": "train", "run_id": "manual-001", "bucket": "YOUR-BUCKET", "file_key": "raw/churn_label.csv"}'
+  --input '{"mode": "train", "run_id": "manual-001", "file_key": "raw/churn_label.csv"}'
 ```
 
 ### GitHub Actions CI/CD
@@ -655,7 +688,7 @@ To enable automated deployments:
 
 ## Feature Engineering
 
-The gold master contains **40+ features** organized into 7 tiers, tested across 9 experiment configurations:
+The gold master contains **41+ features** organized into 7 tiers, tested across 9 experiment configurations:
 
 | Experiment | Tiers Included | Description |
 |------------|---------------|-------------|
@@ -664,10 +697,10 @@ The gold master contains **40+ features** organized into 7 tiers, tested across 
 | E2 | 1A + MP Core + MP Risk | Add volatility/risk metrics |
 | E3 | + 2A Behavioral | Add interaction features |
 | E4 | + 2B Sentiment | Add sentiment analysis |
-| **E5** | **+ 3 Compound** | **Full set (champion)** |
+| **E5_full** | **+ 3 Compound** | **Full set (champion)** |
 | E6 | + 1B Strings | Full + interaction strings (linear models) |
 | E7 | MP Core + MP Risk | Market features only (ablation) |
-| E8 | 2A + 2B | Behavioral only (ablation) |
+| E8_no_sentiment | All except 2B | Full set without sentiment (production fallback) |
 
 ---
 
@@ -675,7 +708,7 @@ The gold master contains **40+ features** organized into 7 tiers, tested across 
 
 | Property | Value |
 |----------|-------|
-| Algorithm | XGBoost (E5 experiment) |
+| Algorithm | XGBoost (E5_full experiment) |
 | Target | `churned_within_horizon` (binary) |
 | Threshold | Optimized for precision at recall >= 0.70 |
 | Promotion gate | PR-AUC >= 0.70 |

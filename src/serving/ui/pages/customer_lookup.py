@@ -123,8 +123,9 @@ def render() -> None:
     with st.expander("Why This Recommendation", expanded=False):
         # Reason codes
         if reco_row is not None:
-            reason_codes = reco_row.get("reason_codes", [])
-            if reason_codes:
+            raw_codes = reco_row.get("reason_codes", [])
+            reason_codes = raw_codes.tolist() if hasattr(raw_codes, "tolist") else list(raw_codes) if raw_codes is not None else []
+            if len(reason_codes) > 0:
                 st.markdown("**Reason Codes:**")
                 for code in reason_codes:
                     st.markdown(f"- {code.replace('_', ' ').title()}")
