@@ -8,6 +8,13 @@ COPY pyproject.toml .
 
 RUN pip install --no-cache-dir \
     pandas numpy scikit-learn xgboost pyarrow scipy \
-    joblib boto3 python-dotenv pyyaml
+    joblib boto3 python-dotenv pyyaml transformers
+
+# Install CPU-only PyTorch (avoids ~2GB CUDA download)
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu
+
+# Pre-download sentiment model at build time (avoids runtime download in SageMaker)
+RUN python -c "from transformers import pipeline; pipeline('text-classification', model='cardiffnlp/twitter-roberta-base-sentiment-latest', tokenizer='cardiffnlp/twitter-roberta-base-sentiment-latest', top_k=None, truncation=True)"
 
 ENTRYPOINT ["python", "-m"]

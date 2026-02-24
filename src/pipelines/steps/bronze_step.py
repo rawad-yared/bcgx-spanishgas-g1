@@ -15,6 +15,7 @@ from src.data.ingest import (
     _assign_tariff_tiers,
     build_bronze_customer,
 )
+from src.data.nlp import enrich_interactions
 from src.pipelines.s3_io import (
     read_csv,
     read_json_s3,
@@ -165,6 +166,9 @@ def run_bronze_step(
     )
 
     logger.info("Loaded small raw datasets: churn=%d", len(churn))
+
+    # NLP enrichment: intent classification + sentiment analysis
+    interactions = enrich_interactions(interactions)
 
     # Build bronze customer (small, fits in memory)
     bronze_customer = build_bronze_customer(churn, attributes, contracts, interactions)
