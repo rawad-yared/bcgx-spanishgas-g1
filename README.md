@@ -86,9 +86,9 @@ graph TB
     end
 
     subgraph Storage
-        S3["S3 Data Lake<br/>raw/ bronze/ silver/ gold/<br/>models/ scored/ monitoring/"]
-        DYNAMO["DynamoDB<br/>Manifest Table"]
-        REGISTRY["SageMaker<br/>Model Registry"]
+        S3["S3 Data Lake"]
+        DYNAMO["DynamoDB Manifest"]
+        REGISTRY["SageMaker Registry"]
     end
 
     subgraph Monitoring
@@ -97,15 +97,15 @@ graph TB
     end
 
     subgraph Serving
-        ALB["Application Load Balancer"]
+        ALB["ALB"]
         ECS["ECS Fargate"]
-        STREAMLIT["Streamlit Dashboard<br/>8 pages"]
+        STREAMLIT["Streamlit (8 pages)"]
     end
 
     subgraph CICD["CI/CD"]
         GHA["GitHub Actions"]
         TF["Terraform IaC"]
-        ECR["ECR Container Registry<br/>3 images"]
+        ECR["ECR (3 images)"]
     end
 
     RAW --> S3PUT --> LAMBDA --> SFN
@@ -129,28 +129,28 @@ The ETL pipeline follows a **medallion architecture** (bronze/silver/gold) imple
 
 ```mermaid
 graph LR
-    subgraph RAW["Raw Layer (7 files)"]
-        CL["churn_label.csv"]
-        CA["customer_attributes.csv"]
-        CC["customer_contracts.csv"]
-        CI["customer_interactions.json"]
-        CH["consumption_hourly.parquet"]
-        PH["price_history.csv"]
-        CP["costs_by_province.csv"]
+    subgraph RAW["Raw (7 files)"]
+        CL["churn_label"]
+        CA["customer_attributes"]
+        CC["customer_contracts"]
+        CI["interactions"]
+        CH["consumption_hourly"]
+        PH["price_history"]
+        CP["costs_by_province"]
     end
 
-    subgraph BRONZE["Bronze Layer"]
-        BC["bronze_customer<br/><i>1 row/customer</i><br/>merge on customer_id"]
-        BCM["bronze_customer_month<br/><i>1 row/cust/month</i><br/>tariff splits, gas kWh conversion"]
+    subgraph BRONZE["Bronze"]
+        BC["bronze_customer"]
+        BCM["bronze_customer_month"]
     end
 
-    subgraph SILVER["Silver Layer"]
-        SC["silver_customer<br/>+ price imputation<br/>+ segments (Res/SME/Corp)<br/>+ channel flags"]
-        SCM["silver_customer_month<br/>+ gross margins<br/>+ price deltas<br/>+ cost allocations"]
+    subgraph SILVER["Silver"]
+        SC["silver_customer"]
+        SCM["silver_customer_month"]
     end
 
-    subgraph GOLD["Gold Layer"]
-        GM["gold_master<br/><i>1 row/customer</i><br/>56 features across 7 tiers"]
+    subgraph GOLD["Gold"]
+        GM["gold_master<br/>56 features"]
     end
 
     CL & CA & CC & CI --> BC
@@ -159,6 +159,12 @@ graph LR
     BCM --> SCM
     SC & SCM --> GM
 ```
+
+**Bronze**: `bronze_customer` merges churn labels, attributes, contracts, and NLP-enriched interactions (1 row/customer). `bronze_customer_month` aggregates hourly consumption to monthly totals with tariff tier splits and gas kWh conversion (1 row/customer/month).
+
+**Silver**: `silver_customer` adds price imputation, customer segments (Residential/SME/Corporate), and channel flags. `silver_customer_month` adds gross margins, price deltas, and cost allocations.
+
+**Gold**: `gold_master` joins silver tables and engineers 56 features across 7 tiers (1 row/customer).
 
 ### Feature Tiers in Gold Master
 
@@ -249,29 +255,34 @@ graph TB
 
 ```mermaid
 graph TD
-    GM["Gold Master"] --> BTS["Build Training Set<br/>structural fills<br/>stratified split (80/20)"]
-    BTS --> PP["Preprocessing Pipeline<br/>(ColumnTransformer)<br/>numeric: StandardScaler<br/>categorical: OneHotEncoder<br/>passthrough: binary flags"]
+    GM["Gold Master"] --> BTS["Build Training Set"]
+    BTS --> PP["Preprocessing"]
     PP --> TRAIN["Model Training"]
 
     TRAIN --> LR["Logistic Regression"]
     TRAIN --> RF["Random Forest"]
-    TRAIN --> XGB["XGBoost<br/><b>(champion)</b>"]
+    TRAIN --> XGB["XGBoost (champion)"]
 
-    XGB --> THRESH["Threshold Optimization<br/>maximize precision<br/>at recall >= 0.70"]
-    THRESH --> EVAL["Evaluation & Promotion Gate"]
+    XGB --> THRESH["Threshold Optimization"]
+    THRESH --> EVAL["Evaluation Gate"]
 
-    EVAL -->|"PR-AUC >= 0.70"| PASS["Model Promoted"]
-    EVAL -->|"PR-AUC < 0.70"| FAIL["Model Rejected"]
+    EVAL -->|"PR-AUC >= 0.70"| PASS["Promoted"]
+    EVAL -->|"PR-AUC < 0.70"| FAIL["Rejected"]
 
-    PASS --> S3_MODELS["S3: models/<br/>pipeline.pkl<br/>metadata.json<br/>eval.json"]
-    PASS --> SM_REG["SageMaker<br/>Model Registry<br/>(Approved)"]
+    PASS --> S3_MODELS["S3: models/"]
+    PASS --> SM_REG["SageMaker Registry"]
 
-    FAIL --> SM_REJ["SageMaker<br/>Model Registry<br/>(Rejected)"]
+    FAIL --> SM_REJ["Registry (Rejected)"]
 
     style XGB fill:#2e7d32,color:#fff
     style PASS fill:#2e7d32,color:#fff
     style FAIL fill:#c62828,color:#fff
 ```
+
+- **Build Training Set**: structural fills for missing values, stratified 80/20 split
+- **Preprocessing**: ColumnTransformer — numeric: StandardScaler, categorical: OneHotEncoder, binary: passthrough
+- **Threshold Optimization**: maximize precision at recall >= 0.70
+- **Artifacts**: `pipeline.pkl`, `metadata.json`, `eval.json` saved to S3
 
 ---
 
@@ -280,27 +291,27 @@ graph TD
 ```mermaid
 graph TD
     subgraph Inputs
-        REF["Reference Store<br/>(S3 JSON)<br/>feature distributions<br/>prediction histogram"]
-        SCORED["Current Scoring Run<br/>gold_master + scored"]
+        REF["Reference Store (S3)"]
+        SCORED["Current Scored Data"]
     end
 
     subgraph Detection["Drift Detection"]
-        KS["KS Test (per feature)<br/>statistic + p-value<br/>drift if p < 0.01"]
-        PRED["Prediction Drift<br/>KS test on churn_proba<br/>distribution"]
+        KS["KS Test per feature"]
+        PRED["Prediction Drift"]
     end
 
     subgraph Outputs
-        S3D["S3: monitoring/<br/>drift_results.json"]
-        SNS_A["SNS Email Alert<br/>(if drift detected)"]
-        CW_M["CloudWatch Metrics<br/>drift_score<br/>drift_detected"]
-        CW_A["CloudWatch Alarm<br/>threshold trigger"]
+        S3D["S3: drift_results.json"]
+        SNS_A["SNS Alert"]
+        CW_M["CloudWatch Metrics"]
+        CW_A["CloudWatch Alarm"]
     end
 
-    subgraph Quality["Data Quality Checks (every run)"]
-        NR["Null rate thresholds<br/>bronze: 20% | silver: 5% | gold: 2%"]
-        DK["Duplicate key detection"]
-        SV["Schema validation<br/>expected columns + dtypes"]
-        RC["Numeric range checks"]
+    subgraph Quality["Data Quality"]
+        NR["Null rate checks"]
+        DK["Duplicate detection"]
+        SV["Schema validation"]
+        RC["Range checks"]
     end
 
     REF & SCORED --> KS & PRED
@@ -309,40 +320,56 @@ graph TD
     KS & PRED --> CW_M --> CW_A
 ```
 
+- **KS Test**: Kolmogorov-Smirnov statistic + p-value per feature, drift flagged if p < 0.01
+- **Prediction Drift**: KS test on `churn_proba` distribution shift
+- **Reference Store**: S3 JSON with feature distributions and prediction histogram
+- **Null rate thresholds**: bronze 20%, silver 5%, gold 2%
+
 ---
 
 ## Serving & Dashboard Architecture
 
 ```mermaid
 graph LR
-    INTERNET["Internet"] --> ALB["ALB<br/>:80"]
-    ALB --> ECS["ECS Fargate Task<br/>:8501"]
+    INTERNET["Internet"] --> ALB["ALB :80"]
+    ALB --> ECS["ECS Fargate :8501"]
     ECS --> APP["Streamlit App"]
 
-    subgraph Pages["Dashboard Pages"]
+    subgraph Pages["8 Dashboard Pages"]
         direction TB
-        P1["Overview<br/>KPI cards, at-risk %,<br/>monthly loss, pipeline runs"]
-        P2["Data Explorer<br/>Browse raw/bronze/silver/gold<br/>data tables"]
-        P3["Model Performance<br/>PR-AUC, ROC-AUC, confusion<br/>matrix, precision, recall"]
-        P4["Drift Monitor<br/>KS stats, feature drift<br/>table, bar chart"]
-        P5["Customer Risk<br/>Risk tier distribution,<br/>expected loss, customer table"]
-        P6["Customer Lookup<br/>Individual risk profile,<br/>financial impact, reason codes"]
-        P7["Recommendations<br/>Action breakdown by tier,<br/>retention offers, timing"]
-        P8["Pipeline Status<br/>Run history, success/fail<br/>counts from DynamoDB"]
+        P1["Overview"]
+        P2["Data Explorer"]
+        P3["Model Performance"]
+        P4["Drift Monitor"]
+        P5["Customer Risk"]
+        P6["Customer Lookup"]
+        P7["Recommendations"]
+        P8["Pipeline Status"]
     end
 
     APP --> Pages
 
     subgraph Data["Data Sources"]
-        S3S["S3: scored/scored_customers.parquet"]
-        S3E["S3: models/eval.json"]
-        S3DR["S3: monitoring/drift_results.json"]
-        S3R["S3: scored/recommendations.parquet"]
-        DDB["DynamoDB: manifest table"]
+        S3S["S3: scored_customers"]
+        S3E["S3: eval.json"]
+        S3DR["S3: drift_results"]
+        S3R["S3: recommendations"]
+        DDB["DynamoDB: manifest"]
     end
 
     Pages --> Data
 ```
+
+| Page | Description |
+|------|-------------|
+| Overview | KPI cards, at-risk %, monthly loss, pipeline runs |
+| Data Explorer | Browse raw/bronze/silver/gold data tables |
+| Model Performance | PR-AUC, ROC-AUC, confusion matrix, precision, recall |
+| Drift Monitor | KS stats, feature drift table, bar chart |
+| Customer Risk | Risk tier distribution, expected loss, customer table |
+| Customer Lookup | Individual risk profile, financial impact, reason codes |
+| Recommendations | Action breakdown by tier, retention offers, timing |
+| Pipeline Status | Run history, success/fail counts from DynamoDB |
 
 ---
 
@@ -354,7 +381,7 @@ graph TD
         PUSH_F["Push to feature/**"]
         PR["Pull Request to main"]
         PUSH_M["Push to main"]
-        SCHED["Schedule<br/>Mon 06:00 UTC"]
+        SCHED["Weekly Schedule"]
         MANUAL["Manual Dispatch"]
     end
 
@@ -368,7 +395,7 @@ graph TD
     subgraph Deploy["Deploy Workflow"]
         OIDC["AWS OIDC Login"]
         TF_PLAN["Terraform Init/Plan/Apply"]
-        DOCKER["Docker Build + Push<br/>Lambda | Processing | Streamlit"]
+        DOCKER["Docker Build + Push"]
         UPDATE_LAMBDA["Update Lambda Code"]
         ECS_DEPLOY["Force ECS Redeploy"]
         OIDC --> TF_PLAN --> DOCKER --> UPDATE_LAMBDA --> ECS_DEPLOY
@@ -377,7 +404,7 @@ graph TD
     subgraph Retrain["Retrain Workflow"]
         OIDC2["AWS OIDC Login"]
         SFN_START["Start Step Functions"]
-        POLL["Poll for Completion<br/>(60 min timeout)"]
+        POLL["Poll for Completion"]
         OIDC2 --> SFN_START --> POLL
     end
 
@@ -386,8 +413,8 @@ graph TD
     SCHED & MANUAL --> Retrain
 
     subgraph Auth["Authentication"]
-        GH_OIDC["GitHub OIDC<br/>Identity Provider"]
-        IAM_ROLE["IAM Deploy Role<br/>(scoped permissions)"]
+        GH_OIDC["GitHub OIDC"]
+        IAM_ROLE["IAM Deploy Role"]
         GH_OIDC --> IAM_ROLE
     end
 
@@ -404,32 +431,32 @@ graph TB
         direction TB
 
         subgraph Storage_Infra["Storage"]
-            S3_MOD["S3<br/>Data bucket<br/>lifecycle rules<br/>encryption"]
-            DDB_MOD["DynamoDB<br/>Manifest table<br/>PAY_PER_REQUEST"]
-            ECR_MOD["ECR<br/>3 repos: Lambda,<br/>Processing, Streamlit"]
+            S3_MOD["S3"]
+            DDB_MOD["DynamoDB"]
+            ECR_MOD["ECR (3 repos)"]
         end
 
         subgraph Compute_Infra["Compute"]
-            LAMBDA_MOD["Lambda<br/>Pipeline trigger<br/>S3 event notification"]
-            SFN_MOD["Step Functions<br/>8-step ASL workflow<br/>.sync calls"]
-            SM_MOD["SageMaker<br/>Model Package Group"]
+            LAMBDA_MOD["Lambda"]
+            SFN_MOD["Step Functions"]
+            SM_MOD["SageMaker"]
         end
 
-        subgraph Network_Infra["Networking & Serving"]
-            NET_MOD["Networking<br/>Default VPC<br/>ALB + ECS<br/>security groups"]
-            ECS_MOD["ECS<br/>Fargate cluster<br/>task definition, service<br/>ALB + target group<br/>CloudWatch logs"]
+        subgraph Network_Infra["Networking"]
+            NET_MOD["VPC + Security Groups"]
+            ECS_MOD["ECS + ALB"]
         end
 
-        subgraph Security_Infra["Security & Monitoring"]
-            IAM_MOD["IAM<br/>5 roles: Lambda, SFN,<br/>SageMaker, ECS exec,<br/>ECS task"]
-            MON_MOD["Monitoring<br/>SNS topic<br/>CW alarms: lambda-errors,<br/>sfn-failures, drift-detected"]
-            OIDC_MOD["GitHub OIDC<br/>Identity provider<br/>Deploy role (scoped)"]
+        subgraph Security_Infra["Security"]
+            IAM_MOD["IAM (5 roles)"]
+            MON_MOD["Monitoring + SNS"]
+            OIDC_MOD["GitHub OIDC"]
         end
     end
 
     subgraph Backend["State Backend"]
-        S3_STATE["S3 Bucket<br/>(terraform state)"]
-        DDB_LOCK["DynamoDB Table<br/>(state locking)"]
+        S3_STATE["S3 (TF state)"]
+        DDB_LOCK["DynamoDB (locks)"]
     end
 
     Terraform --> Backend
