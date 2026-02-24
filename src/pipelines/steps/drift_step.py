@@ -8,7 +8,6 @@ import os
 
 import numpy as np
 import pandas as pd
-
 from botocore.exceptions import ClientError
 
 from src.monitoring.alerts import publish_cloudwatch_metrics, publish_sns_alert

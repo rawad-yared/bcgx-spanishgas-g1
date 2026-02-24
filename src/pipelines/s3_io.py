@@ -5,8 +5,8 @@ from __future__ import annotations
 import io
 import json
 
-import numpy as np
 import boto3
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
