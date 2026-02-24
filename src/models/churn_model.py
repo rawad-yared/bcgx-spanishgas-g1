@@ -50,9 +50,11 @@ def get_model_definitions(y_train: pd.Series | None = None) -> dict[str, Any]:
         from xgboost import XGBClassifier
 
         models["xgboost"] = XGBClassifier(
-            n_estimators=300,
-            max_depth=6,
-            learning_rate=0.1,
+            n_estimators=600,
+            max_depth=5,
+            learning_rate=0.05,
+            subsample=0.8,
+            colsample_bytree=0.8,
             scale_pos_weight=scale_weight,
             eval_metric="aucpr",
             random_state=42,

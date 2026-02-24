@@ -233,8 +233,8 @@ class TestGoldFeaturesE2E:
             assert col in gold_master.columns, f"Missing market core feature: {col}"
 
     def test_gold_has_market_risk_features(self, gold_master):
-        """Tier MP_Risk volatility/trend features should be present."""
-        expected = ["elec_consumption_volatility", "gas_consumption_volatility"]
+        """Tier MP_Risk std/trend features should be present."""
+        expected = ["std_monthly_elec_kwh", "std_monthly_gas_m3", "active_months_count"]
         for col in expected:
             assert col in gold_master.columns, f"Missing market risk feature: {col}"
 

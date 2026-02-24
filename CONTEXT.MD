@@ -1,11 +1,12 @@
 # Context Dump
 
-## Session Info (updated 2026-02-24 session 10)
+## Session Info (updated 2026-02-24 session 11)
 - **Timestamp:** 2026-02-24
-- **Branch:** `feature/aws-mlops-pipeline` (pushed to GitHub)
-- **Latest commit:** `635139b` — sessions 8-10 changes uncommitted
-- **Full pipeline E2E working on AWS** — all 8 SFN steps pass (~23 min). Streamlit dashboard live.
-- **Session 10: feature alignment + Streamlit fixes applied** — feature_tiers.yaml rewritten, recommendations pipeline integrated, eval.json fixed, 3 compound features added, 6 new tests. 129 tests (127 pass). Needs Docker rebuild + re-trigger to validate PR-AUC improvement.
+- **Branch:** `feature/aws-mlops-pipeline` (pushed to GitHub, CI passing)
+- **Latest commit:** `ea185bc` — all sessions 8-11 changes committed + pushed
+- **Full pipeline E2E working on AWS** — all 8 SFN steps pass (~23 min). Drift step fix validated.
+- **Streamlit dashboard live** — all 8 pages working, Customer Lookup "Why This Recommendation" fixed.
+- **Session 11: drift fix, customer lookup fix, README Mermaid, CI passing** — Docker images rebuilt + pushed, pipeline re-triggered and SUCCEEDED, README diagrams converted from ASCII to Mermaid, ruff lint clean, PR-AUC gap root-caused (missing features).
 
 ---
 
@@ -34,10 +35,19 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | 10: UI Enhancements | DONE (session 6) | Overview page, Recommendations page, env var config for S3/DynamoDB |
 | 11: Test Expansion | DONE (session 6) | E2E tests 1->22, page render tests (8), pytest.mark.slow registered |
 | 12: README Revamp | DONE (session 6) | 701-line README with architecture diagrams, dataset docs, setup guide |
+| 13: Session 11 Fixes | DONE (session 11) | Drift step JSON fix, Customer Lookup fix, README Mermaid diagrams, lint fixes, Docker rebuild, pipeline re-trigger |
 
 ---
 
 ## Files Changed (and purpose)
+
+### Session 11 — Drift Fix + Customer Lookup Fix + README Mermaid + CI:
+- `src/pipelines/s3_io.py` - MODIFIED: Added `_json_default()` numpy type handler (bool_, integer, floating, ndarray). `write_json()` now uses `default=_json_default`. Fixed import order (boto3 before numpy).
+- `src/serving/ui/pages/customer_lookup.py` - MODIFIED: `reason_codes` from parquet converted from numpy array to list via `.tolist()` before truthiness check. Fixes "Why This Recommendation" ValueError.
+- `src/pipelines/steps/drift_step.py` - MODIFIED: Fixed ruff I001 import order (removed blank line between pandas and botocore).
+- `README.md` - REWRITTEN: All 7 ASCII box-and-dash architecture diagrams replaced with Mermaid. Added feature tiers diagram. Updated to 8 dashboard pages, 129+ tests, E5_full/E8_no_sentiment experiments, `--platform linux/amd64` in Docker docs.
+- `CLAUDE.md` - MODIFIED: Updated to session 11 state with PR-AUC gap root cause analysis and 3 fix steps.
+- `CONTEXT.MD` - MODIFIED: Updated to session 11 state.
 
 ### Session 10 — Feature Alignment + Streamlit Recommendations + Tests:
 - `configs/feature_tiers.yaml` - REWRITTEN: All tier feature names match actual `build_features.py` output. E5_full: 41 features. Added `E8_no_sentiment` ablation. Added 3 missing interaction strings to `tier_1b`.
@@ -297,6 +307,18 @@ Pipeline PR-AUC = 0.289 vs notebook ~0.745. Root cause: YAML listed 33 features 
 ### FIXED: evaluation.json saves wrong feature list (session 10)
 `train_step.py` now saves `X.columns.tolist()` as `"features"`, plus `"requested_features"` and `"missing_features"` for debugging.
 
+### FIXED: Drift step JSON serialization crash (session 11)
+`s3_io.write_json()` called `json.dumps(data)` without a custom serializer. Drift summary contained `numpy.bool_` values which are not JSON serializable. Fixed by adding `_json_default()` handler for `numpy.bool_`, `numpy.integer`, `numpy.floating`, `numpy.ndarray` and passing `default=_json_default` to `json.dumps()`.
+
+### FIXED: Customer Lookup "Why This Recommendation" crash (session 11)
+`customer_lookup.py` line 127: `if reason_codes:` raised `ValueError: truth value of array with more than one element is ambiguous` because `reason_codes` from parquet is a numpy array. Fixed by converting with `.tolist()` before truthiness check.
+
+### FIXED: Ruff I001 import order in s3_io.py and drift_step.py (session 11)
+`s3_io.py`: `numpy` was imported before `boto3` (alphabetically wrong). `drift_step.py`: blank line between `pandas` and `botocore` caused ruff to see them as separate import groups. Both fixed, CI now passing.
+
+### OPEN: PR-AUC ~0.4 vs notebook ~0.7 (identified session 11)
+Root cause: production `build_features.py` creates 41 features, notebook uses ~56. Missing ~15 features across MP Risk (~9), Behavioral (~6), and Compound (~3) tiers. See fix steps below.
+
 ---
 
 ## Exact Next Steps (ordered)
@@ -306,12 +328,19 @@ Pipeline PR-AUC = 0.289 vs notebook ~0.745. Root cause: YAML listed 33 features 
 3. ~~**Fix SFN IAM (AddTags + Training EventBridge)**~~ — DONE session 8
 4. ~~**Fix step files env var support**~~ — DONE session 8 (all 6 steps)
 5. ~~**Upload raw data**~~ — DONE session 8 (7 files in `s3://spanishgas-data-dev/raw/`)
-6. **Fix consumption file format mismatch** — choose Option A, B, or C above
-7. **Rebuild & push Processing image** — after fixing bronze_step.py
-8. **Clear DynamoDB manifest + re-trigger pipeline** — `aws dynamodb delete-item` then `aws lambda invoke`
-9. **Validate full pipeline E2E** — monitor SFN execution through all steps
-10. **Commit session 8 changes** — all fixes (instance type, amd64, IAM, env vars, consumption fix)
-11. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
+6. ~~**Fix consumption file format mismatch**~~ — DONE session 9 (CSV→parquet + chunked processing)
+7. ~~**Fix feature_tiers.yaml + compound features**~~ — DONE session 10
+8. ~~**Fix drift step JSON serialization**~~ — DONE session 11
+9. ~~**Fix Customer Lookup reason_codes crash**~~ — DONE session 11
+10. ~~**README Mermaid diagrams**~~ — DONE session 11
+11. ~~**Rebuild Docker images + push + re-trigger pipeline**~~ — DONE session 11 (pipeline SUCCEEDED)
+12. ~~**Commit + push + CI passing**~~ — DONE session 11 (`ea185bc`)
+13. **Close PR-AUC gap (~0.4 → ~0.7)** — add ~15 missing features to `build_features.py`:
+    - **Step 1: `src/features/build_features.py`** — add missing MP Risk features (~9: `std_monthly_elec_kwh`, `std_monthly_gas_m3`, `std_margin`, `min_monthly_margin`, `max_negative_margin`, `elec_price_volatility_12m`, `is_price_increase`, `rolling_margin_trend`, `province_elec_cost_trend`), Behavioral features (~6: `interaction_within_3m_of_renewal`, `complaint_near_renewal`, `is_interaction_within_30d`, `recent_complaint_flag`, `is_complaint_intent`, `intent_severity_score`), Compound features (~3: `dual_fuel_x_renewal`, `dual_fuel_x_competition`, `complaint_x_negative_sentiment`)
+    - **Step 2: `configs/feature_tiers.yaml`** — add new feature names to corresponding tier lists
+    - **Step 3: `src/models/churn_model.py`** (optional) — align threshold selection with notebook (use full training set instead of validation subset)
+14. **Rebuild Docker images + re-trigger pipeline** — validate PR-AUC >= 0.70
+15. **Open PR** — `feature/aws-mlops-pipeline` -> `main`
 
 ---
 
@@ -527,9 +556,17 @@ SKIPPED: tests/test_models.py::TestModelDefinitions::test_xgboost_included_when_
 - [x] Fix eval.json feature list (DONE session 10 — saves actual X.columns)
 - [x] Add missing compound features (DONE session 10 — 3 interaction strings added to build_features.py)
 - [x] Add Overview + Recommendations page tests (DONE session 10 — 6 new tests)
-- [ ] Rebuild & push Processing + Streamlit Docker images (after session 10 code changes)
-- [ ] Clear DynamoDB manifest + re-trigger pipeline (validate PR-AUC improvement)
-- [ ] Commit sessions 8-10 changes
+- [x] Rebuild & push Processing + Streamlit Docker images (DONE session 11 — drift fix + customer lookup fix)
+- [x] Re-trigger pipeline and validate drift step fix (DONE session 11 — driftfix-20260224-141631 SUCCEEDED)
+- [x] Fix drift step JSON serialization (DONE session 11 — _json_default numpy handler)
+- [x] Fix Customer Lookup reason_codes crash (DONE session 11 — numpy array .tolist())
+- [x] Fix ruff I001 import order (DONE session 11 — s3_io.py + drift_step.py)
+- [x] Replace README ASCII diagrams with Mermaid (DONE session 11)
+- [x] Commit sessions 8-11 changes + push (DONE session 11 — ea185bc, CI passing)
+- [ ] Close PR-AUC gap: add ~15 missing features to build_features.py
+- [ ] Close PR-AUC gap: update feature_tiers.yaml with new feature names
+- [ ] Close PR-AUC gap: (optional) align threshold selection in churn_model.py
+- [ ] Rebuild Docker images + re-trigger pipeline (validate PR-AUC >= 0.70)
 - [ ] Open PR: feature/aws-mlops-pipeline -> main
 
 ---

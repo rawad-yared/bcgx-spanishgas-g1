@@ -41,10 +41,10 @@ def build_lifecycle_features(
         renewal = pd.to_datetime(sc["next_renewal_date"], errors="coerce")
         sc["months_to_renewal"] = ((renewal - as_of).dt.days / 30.44).round(1)
 
-    # Renewal bucket
+    # Renewal bucket (5 bins to match notebook)
     if "months_to_renewal" in sc.columns:
-        bins = [-np.inf, 0, 1, 3, 6, 12, np.inf]
-        labels = ["expired", "0-1m", "1-3m", "3-6m", "6-12m", "12m+"]
+        bins = [-np.inf, 0, 3, 6, 12, np.inf]
+        labels = ["expired", "0-3m", "3-6m", "6-12m", "12m+"]
         sc["renewal_bucket"] = pd.cut(sc["months_to_renewal"], bins=bins, labels=labels)
         sc["is_within_3m_of_renewal"] = (sc["months_to_renewal"].fillna(999) <= 3).astype("Int64")
 
@@ -119,7 +119,7 @@ def build_market_core_features(
         total_gas_m3_2024=("monthly_gas_m3", "sum"),
     )
 
-    # Margin features
+    # Margin features (excluded from training but kept for expected_monthly_loss)
     if "total_margin" in scm.columns:
         margin_agg = scm.groupby(KEY, as_index=False).agg(
             avg_monthly_margin=("total_margin", "mean"),
@@ -180,77 +180,118 @@ def build_market_core_features(
     return agg
 
 
-# ── Tier MP_Risk: Volatility, trends, margin stability ──────────────────────
+# ── Tier MP_Risk: Consumption std, price trends, margin stability ────────────
 
 
 def build_market_risk_features(
     silver_customer_month: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Tier MP_Risk — consumption volatility, price trends, margin stability."""
+    """Tier MP_Risk — consumption std, relative price trends, margin stability."""
     scm = silver_customer_month.copy()
 
     risk = scm[[KEY]].drop_duplicates().reset_index(drop=True)
 
-    # Consumption volatility (CV)
+    # Consumption standard deviation (raw std, not CV) + active months count
     cons_stats = scm.groupby(KEY).agg(
-        _elec_mean=("monthly_elec_kwh", "mean"),
-        _elec_std=("monthly_elec_kwh", "std"),
-        _gas_mean=("monthly_gas_m3", "mean"),
-        _gas_std=("monthly_gas_m3", "std"),
+        std_monthly_elec_kwh=("monthly_elec_kwh", "std"),
+        std_monthly_gas_m3=("monthly_gas_m3", "std"),
+        active_months_count=("month", "nunique"),
     ).reset_index()
+    risk = risk.merge(cons_stats, on=KEY, how="left")
 
-    cons_stats["elec_consumption_volatility"] = np.where(
-        cons_stats["_elec_mean"] > 0,
-        cons_stats["_elec_std"] / cons_stats["_elec_mean"],
-        0.0,
-    )
-    cons_stats["gas_consumption_volatility"] = np.where(
-        cons_stats["_gas_mean"] > 0,
-        cons_stats["_gas_std"] / cons_stats["_gas_mean"],
-        0.0,
-    )
-    risk = risk.merge(
-        cons_stats[[KEY, "elec_consumption_volatility", "gas_consumption_volatility"]],
-        on=KEY, how="left",
-    )
+    # Margin stats: std, min, count of negative months
+    if "total_margin" in scm.columns:
+        margin_stats = scm.groupby(KEY, as_index=False).agg(
+            std_margin=("total_margin", "std"),
+            min_monthly_margin=("total_margin", "min"),
+        )
+        risk = risk.merge(margin_stats, on=KEY, how="left")
 
-    # Price trend (slope of monthly prices via simple diff)
+        # max_negative_margin = count of months with negative margin
+        neg_months = scm[scm["total_margin"] < 0].groupby(KEY, as_index=False).agg(
+            max_negative_margin=("total_margin", "count"),
+        )
+        risk = risk.merge(neg_months, on=KEY, how="left")
+        risk["max_negative_margin"] = risk["max_negative_margin"].fillna(0)
+
+    # Electricity price trend (relative: (last - first) / first) + volatility
     if "variable_price_tier1_eur_kwh" in scm.columns:
         sorted_scm = scm.sort_values([KEY, "month"])
-        price_trend = sorted_scm.groupby(KEY).agg(
+        price_agg = sorted_scm.groupby(KEY).agg(
             _first_price=("variable_price_tier1_eur_kwh", "first"),
             _last_price=("variable_price_tier1_eur_kwh", "last"),
-            _n_months=("month", "count"),
+            elec_price_volatility_12m=("variable_price_tier1_eur_kwh", "std"),
         ).reset_index()
-        price_trend["elec_price_trend"] = np.where(
-            price_trend["_n_months"] > 1,
-            (price_trend["_last_price"] - price_trend["_first_price"]) / price_trend["_n_months"],
+        price_agg["elec_price_trend_12m"] = np.where(
+            price_agg["_first_price"] > 0,
+            (price_agg["_last_price"] - price_agg["_first_price"]) / price_agg["_first_price"],
             0.0,
         )
-        risk = risk.merge(price_trend[[KEY, "elec_price_trend"]], on=KEY, how="left")
+        price_agg["is_price_increase"] = (price_agg["elec_price_trend_12m"] > 0).astype("Int64")
+        risk = risk.merge(
+            price_agg[[KEY, "elec_price_trend_12m", "elec_price_volatility_12m", "is_price_increase"]],
+            on=KEY, how="left",
+        )
 
+    # Gas price trend (relative)
     if "gas_variable_price_eur_m3" in scm.columns:
         sorted_scm = scm.sort_values([KEY, "month"])
-        gas_trend = sorted_scm.groupby(KEY).agg(
-            _first=("gas_variable_price_eur_m3", "first"),
-            _last=("gas_variable_price_eur_m3", "last"),
-            _n=("month", "count"),
+        gas_agg = sorted_scm.groupby(KEY).agg(
+            _first_gas=("gas_variable_price_eur_m3", "first"),
+            _last_gas=("gas_variable_price_eur_m3", "last"),
         ).reset_index()
-        gas_trend["gas_price_trend"] = np.where(
-            gas_trend["_n"] > 1,
-            (gas_trend["_last"] - gas_trend["_first"]) / gas_trend["_n"],
+        gas_agg["gas_price_trend_12m"] = np.where(
+            gas_agg["_first_gas"] > 0,
+            (gas_agg["_last_gas"] - gas_agg["_first_gas"]) / gas_agg["_first_gas"],
             0.0,
         )
-        risk = risk.merge(gas_trend[[KEY, "gas_price_trend"]], on=KEY, how="left")
+        risk = risk.merge(gas_agg[[KEY, "gas_price_trend_12m"]], on=KEY, how="left")
 
-    # Margin stability (std of total_margin)
-    if "total_margin" in scm.columns:
-        margin_std = scm.groupby(KEY, as_index=False).agg(
-            elec_margin_stability=("elec_margin", "std") if "elec_margin" in scm.columns else ("total_margin", "std"),
-            gas_margin_stability=("gas_margin", "std") if "gas_margin" in scm.columns else ("total_margin", "std"),
-            total_margin_avg=("total_margin", "mean"),
+    # Province electricity cost trend (relative)
+    if "elec_var_cost_eur_kwh" in scm.columns:
+        sorted_scm = scm.sort_values([KEY, "month"])
+        cost_agg = sorted_scm.groupby(KEY).agg(
+            _first_cost=("elec_var_cost_eur_kwh", "first"),
+            _last_cost=("elec_var_cost_eur_kwh", "last"),
+        ).reset_index()
+        cost_agg["province_elec_cost_trend"] = np.where(
+            cost_agg["_first_cost"] > 0,
+            (cost_agg["_last_cost"] - cost_agg["_first_cost"]) / cost_agg["_first_cost"],
+            0.0,
         )
-        risk = risk.merge(margin_std, on=KEY, how="left")
+        risk = risk.merge(cost_agg[[KEY, "province_elec_cost_trend"]], on=KEY, how="left")
+
+    # Price vs province cost spread (last price - avg province cost)
+    if "variable_price_tier1_eur_kwh" in scm.columns and "elec_var_cost_eur_kwh" in scm.columns:
+        sorted_scm = scm.sort_values([KEY, "month"])
+        spread_agg = sorted_scm.groupby(KEY).agg(
+            _last_price_s=("variable_price_tier1_eur_kwh", "last"),
+            _avg_cost=("elec_var_cost_eur_kwh", "mean"),
+        ).reset_index()
+        spread_agg["elec_price_vs_province_cost_spread"] = (
+            spread_agg["_last_price_s"] - spread_agg["_avg_cost"]
+        )
+        risk = risk.merge(
+            spread_agg[[KEY, "elec_price_vs_province_cost_spread"]], on=KEY, how="left",
+        )
+
+    # Rolling margin trend (last 3 months avg - prior 3 months avg)
+    if "total_margin" in scm.columns:
+        sorted_scm = scm.sort_values([KEY, "month"])
+        sorted_scm["_rank"] = sorted_scm.groupby(KEY).cumcount(ascending=False)
+        last_3 = sorted_scm[sorted_scm["_rank"] < 3].groupby(KEY, as_index=False).agg(
+            _last3_avg=("total_margin", "mean"),
+        )
+        prior_3 = sorted_scm[
+            (sorted_scm["_rank"] >= 3) & (sorted_scm["_rank"] < 6)
+        ].groupby(KEY, as_index=False).agg(
+            _prior3_avg=("total_margin", "mean"),
+        )
+        margin_trend = last_3.merge(prior_3, on=KEY, how="left")
+        margin_trend["rolling_margin_trend"] = (
+            margin_trend["_last3_avg"] - margin_trend["_prior3_avg"].fillna(margin_trend["_last3_avg"])
+        )
+        risk = risk.merge(margin_trend[[KEY, "rolling_margin_trend"]], on=KEY, how="left")
 
     return risk
 
@@ -262,7 +303,7 @@ def build_behavioral_features(
     silver_customer: pd.DataFrame,
     as_of_date: datetime | None = None,
 ) -> pd.DataFrame:
-    """Tier 2A — interaction counts, complaints, intent, recency."""
+    """Tier 2A — interaction presence, intent flags, severity, recency, timing."""
     sc = silver_customer.copy()
     if as_of_date is None:
         as_of_date = pd.Timestamp.now()
@@ -276,22 +317,31 @@ def build_behavioral_features(
             sc[[KEY, "has_interaction"]].drop_duplicates(KEY), on=KEY, how="left"
         )
 
-    # Intent
+    # Intent + intent-based flags
     if "customer_intent" in sc.columns:
-        behav = behav.merge(
-            sc[[KEY, "customer_intent"]].drop_duplicates(KEY), on=KEY, how="left"
-        )
-        behav["intent_to_cancel"] = (
-            behav["customer_intent"].astype("string").str.lower().str.contains("cancel", na=False)
+        intent_df = sc[[KEY, "customer_intent"]].drop_duplicates(KEY)
+        behav = behav.merge(intent_df, on=KEY, how="left")
+
+        intent_str = behav["customer_intent"].astype("string").str.strip()
+        behav["is_cancellation_intent"] = (
+            intent_str == "Cancellation / Switch"
+        ).astype("Int64")
+        behav["is_complaint_intent"] = (
+            intent_str == "Complaint / Escalation"
+        ).astype("Int64")
+        behav["recent_complaint_flag"] = (
+            intent_str.isin(["Complaint / Escalation", "Cancellation / Switch"])
         ).astype("Int64")
 
-    # Complaints
-    if "interaction_summary" in sc.columns:
-        summary = sc[[KEY, "interaction_summary"]].drop_duplicates(KEY)
-        summary["has_complaint"] = (
-            summary["interaction_summary"].astype("string").str.lower().str.contains("complaint", na=False)
-        ).astype("Int64")
-        behav = behav.merge(summary[[KEY, "has_complaint"]], on=KEY, how="left")
+        # Severity ordinal
+        severity_map = {
+            "Cancellation / Switch": 3,
+            "Complaint / Escalation": 2,
+            "Pricing Offers": 1,
+        }
+        behav["intent_severity_score"] = (
+            behav["customer_intent"].map(severity_map).fillna(0).astype("Int64")
+        )
 
     # Last interaction days ago
     if "date" in sc.columns:
@@ -301,6 +351,45 @@ def build_behavioral_features(
         latest["last_interaction_days_ago"] = (as_of - latest["last_date"]).dt.days
         behav = behav.merge(latest[[KEY, "last_interaction_days_ago"]], on=KEY, how="left")
 
+    # Interaction timing relative to renewal
+    if "date" in sc.columns and "next_renewal_date" in sc.columns:
+        timing = sc[[KEY, "date", "next_renewal_date"]].copy()
+        timing["date"] = pd.to_datetime(timing["date"], errors="coerce")
+        timing["next_renewal_date"] = pd.to_datetime(timing["next_renewal_date"], errors="coerce")
+        timing["_months_to_renewal_at_interaction"] = (
+            (timing["next_renewal_date"] - timing["date"]).dt.days / 30.44
+        )
+        # Take latest interaction per customer
+        latest_timing = timing.sort_values("date").groupby(KEY, as_index=False).last()
+        latest_timing["interaction_within_3m_of_renewal"] = (
+            latest_timing["_months_to_renewal_at_interaction"].between(0, 3)
+        ).astype("Int64")
+        latest_timing["is_interaction_within_30d_of_renewal"] = (
+            latest_timing["_months_to_renewal_at_interaction"].between(0, 1)
+        ).astype("Int64")
+        behav = behav.merge(
+            latest_timing[[KEY, "interaction_within_3m_of_renewal", "is_interaction_within_30d_of_renewal"]],
+            on=KEY, how="left",
+        )
+
+    # Complaint near renewal
+    if "recent_complaint_flag" in behav.columns and "interaction_within_3m_of_renewal" in behav.columns:
+        behav["complaint_near_renewal"] = (
+            (behav["recent_complaint_flag"].fillna(0) == 1)
+            & (behav["interaction_within_3m_of_renewal"].fillna(0) == 1)
+        ).astype("Int64")
+
+    # Months since last product change
+    if "last_product_change_date" in sc.columns:
+        change = sc[[KEY, "last_product_change_date"]].drop_duplicates(KEY)
+        change["last_product_change_date"] = pd.to_datetime(
+            change["last_product_change_date"], errors="coerce"
+        )
+        change["months_since_last_change"] = (
+            (as_of - change["last_product_change_date"]).dt.days / 30.44
+        ).round(1)
+        behav = behav.merge(change[[KEY, "months_since_last_change"]], on=KEY, how="left")
+
     return behav
 
 
@@ -308,7 +397,7 @@ def build_behavioral_features(
 
 
 def build_sentiment_features(silver_customer: pd.DataFrame) -> pd.DataFrame:
-    """Tier 2B — sentiment label, negative sentiment flag, avg sentiment."""
+    """Tier 2B — sentiment label, negative sentiment flag."""
     sc = silver_customer.copy()
     sent = sc[[KEY]].drop_duplicates().reset_index(drop=True)
 
@@ -317,14 +406,9 @@ def build_sentiment_features(silver_customer: pd.DataFrame) -> pd.DataFrame:
             sent = sent.merge(sc[[KEY, col]].drop_duplicates(KEY), on=KEY, how="left")
 
     if "sentiment_label" in sent.columns:
-        sent["has_negative_sentiment"] = (
+        sent["is_negative_sentiment"] = (
             sent["sentiment_label"].astype("string").str.lower() == "negative"
         ).astype("Int64")
-
-    if "sentiment_neg" in sent.columns:
-        sent["avg_sentiment_score"] = (
-            sent.get("sentiment_pos", 0) - sent.get("sentiment_neg", 0)
-        )
 
     return sent
 
@@ -345,7 +429,7 @@ def build_compound_features(
             + df[b].astype("string").fillna("Unknown")
         )
 
-    # Interaction string features
+    # Interaction string features (Tier 1B)
     if "customer_intent" in df.columns and "renewal_bucket" in df.columns:
         df["intent_x_renewal_bucket"] = _safe_cross("customer_intent", "renewal_bucket")
 
@@ -370,23 +454,50 @@ def build_compound_features(
     if "is_high_competition_province" in df.columns and "customer_intent" in df.columns:
         df["competition_x_intent"] = _safe_cross("is_high_competition_province", "customer_intent")
 
-    # Binary interaction flags
-    if "is_within_3m_of_renewal" in df.columns and "has_complaint" in df.columns:
-        df["renewal_x_complaint"] = (
-            (df["is_within_3m_of_renewal"].fillna(0) == 1)
-            & (df["has_complaint"].fillna(0) == 1)
-        ).astype("Int64")
-
-    if "has_negative_sentiment" in df.columns and "is_within_3m_of_renewal" in df.columns:
-        df["high_risk_x_negative_sentiment"] = (
-            (df["is_within_3m_of_renewal"].fillna(0) == 1)
-            & (df["has_negative_sentiment"].fillna(0) == 1)
-        ).astype("Int64")
-
-    # Price sensitivity
+    # Binary compound flags (Tier 3)
     if "customer_intent" in df.columns:
         df["is_price_sensitive"] = (
             df["customer_intent"].astype("string") == "Pricing Offers"
+        ).astype("Int64")
+
+    if "renewal_bucket" in df.columns and "tenure_bucket" in df.columns:
+        df["is_high_risk_lifecycle"] = (
+            df["renewal_bucket"].astype("string").isin(["expired", "0-3m"])
+            & df["tenure_bucket"].astype("string").isin(["0-6m", "6-12m"])
+        ).astype("Int64")
+
+    if "is_high_competition_province" in df.columns and "is_within_3m_of_renewal" in df.columns:
+        df["is_competition_x_renewal"] = (
+            (df["is_high_competition_province"].fillna(0) == 1)
+            & (df["is_within_3m_of_renewal"].fillna(0) == 1)
+        ).astype("Int64")
+
+    if "is_dual_fuel" in df.columns and "is_within_3m_of_renewal" in df.columns:
+        df["dual_fuel_x_renewal"] = (
+            (df["is_dual_fuel"].fillna(0) == 1)
+            & (df["is_within_3m_of_renewal"].fillna(0) == 1)
+        ).astype("Int64")
+
+    if "is_dual_fuel" in df.columns and "is_high_competition_province" in df.columns:
+        df["dual_fuel_x_competition"] = (
+            (df["is_dual_fuel"].fillna(0) == 1)
+            & (df["is_high_competition_province"].fillna(0) == 1)
+        ).astype("Int64")
+
+    if "is_dual_fuel" in df.columns and "customer_intent" in df.columns:
+        df["dual_fuel_x_intent"] = (
+            (df["is_dual_fuel"].fillna(0) == 1)
+            & (
+                df["customer_intent"].astype("string").isin(
+                    ["Cancellation / Switch", "Complaint / Escalation"]
+                )
+            )
+        ).astype("Int64")
+
+    if "recent_complaint_flag" in df.columns and "is_negative_sentiment" in df.columns:
+        df["complaint_x_negative_sentiment"] = (
+            (df["recent_complaint_flag"].fillna(0) == 1)
+            & (df["is_negative_sentiment"].fillna(0) == 1)
         ).astype("Int64")
 
     return df

@@ -9,7 +9,7 @@ KEY = "customer_id"
 TARGET = "churn"
 
 # Structural fills applied before sklearn pipeline
-NUMERIC_SENTINEL_COLS = ["last_interaction_days_ago"]
+NUMERIC_SENTINEL_COLS = ["last_interaction_days_ago", "months_since_last_change"]
 NUMERIC_SENTINEL_VALUE = 9999
 
 CATEGORICAL_DEFAULT_COLS = [
@@ -53,7 +53,12 @@ def build_model_matrix(
             df[col] = df[col].fillna(CATEGORICAL_DEFAULT_VALUE)
 
     # Binary interaction flags → 0 for missing
-    binary_flags = [c for c in df.columns if c.startswith("is_") or c.endswith("_x_complaint")]
+    binary_flag_prefixes = ("is_", "has_", "dual_fuel_x_", "complaint_")
+    binary_flag_suffixes = ("_flag", "_intent", "_renewal", "_sentiment")
+    binary_flags = [
+        c for c in df.columns
+        if c.startswith(binary_flag_prefixes) or c.endswith(binary_flag_suffixes)
+    ]
     for col in binary_flags:
         if col in df.columns:
             df[col] = df[col].fillna(0)

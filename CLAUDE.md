@@ -6,24 +6,23 @@ Churn prediction system for 20,099 Spanish energy customers. Converting Jupyter 
 ## Branch
 `feature/aws-mlops-pipeline` (from `main`)
 
-## Current State (session 10)
+## Current State (session 11)
 - **Full pipeline E2E working on AWS** — all 8 SFN steps complete successfully (~23 min total)
-- **Streamlit dashboard live** — ALB URL serving pages (rebuilt for amd64 + `pip install -e .` fix)
-- **All 3 Docker images in ECR** — Lambda, Processing, Streamlit (all linux/amd64)
+- **Streamlit dashboard live** — ALB URL serving all 8 pages (rebuilt for amd64 + `pip install -e .` fix)
+- **All 3 Docker images in ECR** — Lambda, Processing, Streamlit (all linux/amd64, rebuilt session 11)
 - **129 tests passing** across 18 test files, 1 skipped (xgboost conditional), 1 pre-existing failure (test_aws_defaults bucket name mismatch)
-- **Ruff lint clean** (except pre-existing drift_step.py import order)
-- **Latest commit:** `635139b` — sessions 8-10 changes uncommitted
-- **feature_tiers.yaml fully rewritten** — now matches actual `build_features.py` output (41 features in E5_full, was ~10-15 matching)
-- **Recommendations pipeline fixed** — `score_step.py` now calls `generate_recommendations()` and writes `scored/recommendations.parquet`
-- **eval.json fixed** — now saves actual features used (`X.columns`) instead of YAML list
-- **3 missing compound features added** — `sales_channel_x_renewal_bucket`, `has_interaction_x_renewal_bucket`, `competition_x_intent` now created in `build_compound_features()`
-- **Needs: rebuild Docker images + re-trigger pipeline** to validate PR-AUC improvement
+- **Ruff lint clean** — all I001 import order issues fixed (s3_io.py + drift_step.py)
+- **Latest commit:** `ea185bc` — pushed to `origin/feature/aws-mlops-pipeline`, CI passing
+- **Drift step fix deployed** — `_json_default` numpy serializer in `s3_io.write_json`, pipeline runs clean
+- **Customer Lookup fix deployed** — `reason_codes` numpy array converted to list before truthiness check
+- **README updated** — all 7 ASCII diagrams replaced with Mermaid, added feature tiers diagram, 8 pages documented
+- **PR-AUC = ~0.4** — improved from 0.289 but still below notebook's ~0.7 (see Next Steps for root cause + fix plan)
 
 ## Key Architecture
 - **S3 layout:** Single bucket, prefix-based (`raw/`, `bronze/`, `silver/`, `gold/`, `models/`, `scored/`)
 - **Orchestration:** Lambda (S3 trigger) -> Step Functions -> SageMaker Processing/Training
 - **Idempotency:** DynamoDB manifest table (PK: file_key)
-- **Model:** XGBoost (E5 experiment), threshold optimized for precision at recall >= 0.70
+- **Model:** XGBoost (E5_full experiment), threshold optimized for precision at recall >= 0.70
 - **Drift:** KS test (scipy), p_threshold=0.01
 - **Promotion gate:** PR-AUC >= 0.70
 - **Dashboard:** Streamlit on ECS Fargate behind ALB, auto-deployed via GitHub Actions
@@ -38,7 +37,7 @@ src/reco/                  - schema.py, engine.py
 src/pipelines/             - lambda_handler.py, manifest.py, s3_io.py, run.py
 src/pipelines/steps/       - bronze, silver, gold, train, evaluate, score, drift steps
 src/monitoring/            - drift.py, data_quality.py, alerts.py, reference_store.py
-src/serving/ui/            - app.py, data_loader.py, pages/{overview, model_performance, drift_monitor, customer_risk, recommendations, pipeline_status}
+src/serving/ui/            - app.py, data_loader.py, pages/{overview, data_explorer, model_performance, drift_monitor, customer_risk, customer_lookup, recommendations, pipeline_status}
 infra/terraform/           - main.tf, backend.tf, variables.tf, outputs.tf + 11 modules
 .github/workflows/         - ci.yml, deploy.yml, retrain.yml
 Dockerfile.lambda          - Lambda container image
@@ -107,42 +106,42 @@ tests/test_imports.py              - 1 test (package import smoke test)
 
 ## Known Issues
 - `test_aws_defaults` fails due to `.env` having `spanishgas-data-dev` vs test expecting `spanishgas-data-g1` (pre-existing)
-- `drift_step.py` has pre-existing ruff I001 import order lint warning (non-blocking)
+- **PR-AUC ~0.4 vs notebook ~0.7** — root cause is missing features in production `build_features.py` (see Next Steps)
 
-## Session 8 Fixes Applied (uncommitted)
-1. **Instance type `ml.m5.xlarge` → `ml.m5.large`** — updated `configs/settings.py`, `.env`, `.env.example`, `infra/terraform/variables.tf`, `infra/terraform/modules/step_functions/variables.tf` (dev.tfvars already had `ml.m5.large`)
-2. **Docker images rebuilt for linux/amd64** — Lambda + Processing images were arm64 (Apple Silicon), causing `Exec format error` on SageMaker x86_64 instances. Rebuilt with `--platform linux/amd64 --provenance=false` and pushed to ECR
-3. **SFN IAM policy** — added `sagemaker:AddTags` (required by `.sync` managed tags) and `StepFunctionsGetEventsForSageMakerTrainingJobsRule` EventBridge rule
-4. **All 6 step files env var support** — `--bucket` now defaults to `S3_BUCKET` env var, `--region` to `AWS_REGION`, `--sns-topic-arn` to `SNS_TOPIC_ARN` (matching ASL Environment config). Files: `bronze_step.py`, `silver_step.py`, `gold_step.py`, `train_step.py`, `evaluate_step.py`, `score_step.py`, `drift_step.py`
-5. **Lambda function code updated** — `aws lambda update-function-code` to pull new amd64 image digest
+## Session 11 Fixes Applied (committed + pushed)
+1. **Drift step JSON serialization fix** — `s3_io.py` now has `_json_default()` handler for `numpy.bool_`, `numpy.integer`, `numpy.floating`, `numpy.ndarray`. `write_json()` passes `default=_json_default` to `json.dumps()`. Previously crashed with `TypeError: Object of type bool is not JSON serializable`.
+2. **Customer Lookup "Why This Recommendation" fix** — `customer_lookup.py` line 126: `reason_codes` from parquet comes back as numpy array. `if numpy_array:` raises `ValueError: truth value of array is ambiguous`. Fixed by converting with `.tolist()` before truthiness check.
+3. **Ruff I001 import order fixes** — `s3_io.py`: `boto3` moved before `numpy` (alphabetical). `drift_step.py`: removed blank line between `pandas` and `botocore` (same import group).
+4. **README Mermaid diagrams** — all 7 ASCII box-and-dash diagrams replaced with Mermaid. Added feature tiers diagram. Updated to 8 dashboard pages, 129+ tests, E5_full/E8_no_sentiment experiments, `--platform linux/amd64` in Docker docs.
+5. **Docker images rebuilt + pushed** — Processing (drift fix) and Streamlit (customer lookup fix) images rebuilt for linux/amd64, pushed to ECR, ECS redeployment triggered.
+6. **Pipeline re-triggered and SUCCEEDED** — `driftfix-20260224-141631` execution completed all 8 steps (~23 min). Drift step now runs clean.
 
-## Session 9 Fixes Applied (uncommitted)
-1. **Consumption file: CSV→parquet converted locally, uploaded to S3** — `raw/consumption_hourly_2024.parquet` (1.8 GB)
-2. **BronzeETL OOM fix** — rewrote `bronze_step.py` with chunked processing via `read_parquet_batches()` (downloads to temp file, iterates 2M-row batches via pyarrow). Runs on `ml.m5.large` (8 GB).
-3. **TrainModel 0-features fix** — `train_step.py` had 3 bugs: experiment `"E5"` → `"E5_full"`, key `"tiers"` → `"features"`, top-level `"tiers"` → `"feature_tiers"`
-4. **DriftCheck NoSuchKey fix** — `drift_step.py` now handles missing reference file on first run (saves baseline, skips comparison)
-5. **Streamlit exec format error** — rebuilt Streamlit image for linux/amd64
-6. **Streamlit ModuleNotFoundError** — added `pip install -e .` to `Dockerfile.streamlit`
-7. **Added `processing_instance_large` TF variable** — for BronzeETL xlarge override (later reverted to ml.m5.large after chunked fix)
-8. **New `read_parquet_batches()` in `s3_io.py`** — streams parquet from S3 via temp file + pyarrow batch iterator
-
-## Session 10 Fixes Applied (uncommitted)
-1. **feature_tiers.yaml complete rewrite** — all tier feature names now match actual `build_features.py` output columns. E5_full: 41 features (was ~10-15 matching). Key renames: `avg_elec_consumption_kwh` → `avg_monthly_elec_kwh`, `avg_gas_consumption_kwh` → `avg_monthly_gas_m3`, `provincial_elec_cost_eur_kwh` → `province_avg_elec_cost_2024`, etc. Removed 15 non-existent features, added 16+ missing features from gold master.
+## Session 10 Fixes Applied (committed in session 11)
+1. **feature_tiers.yaml complete rewrite** — all tier feature names now match actual `build_features.py` output columns. E5_full: 41 features (was ~10-15 matching).
 2. **eval.json now saves actual features** — `train_step.py` saves `X.columns.tolist()` as `"features"`, plus `"requested_features"` and `"missing_features"` for debugging.
-3. **Recommendations pipeline integrated** — `score_step.py` now calls `generate_recommendations()` from `src/reco/engine.py` and writes `scored/recommendations.parquet` to S3. Fixes broken Streamlit Recommendations page.
-4. **3 missing compound features added** — `build_compound_features()` in `build_features.py` now creates `sales_channel_x_renewal_bucket`, `has_interaction_x_renewal_bucket`, `competition_x_intent` (were in `build_training_set.py` CATEGORICAL_DEFAULT_COLS but never created).
-5. **6 new Streamlit tests** — `TestOverviewPage` (2 tests), `TestRecommendationsPage` (2 tests), `TestLoadRecommendations` (2 tests). Total: 129 tests (127 pass, 1 pre-existing failure, 1 skipped).
-6. **Added E8_no_sentiment experiment** — ablation experiment without sentiment features (production fallback if NLP unavailable).
+3. **Recommendations pipeline integrated** — `score_step.py` now calls `generate_recommendations()` from `src/reco/engine.py` and writes `scored/recommendations.parquet` to S3.
+4. **3 missing compound features added** — `build_compound_features()` in `build_features.py` now creates `sales_channel_x_renewal_bucket`, `has_interaction_x_renewal_bucket`, `competition_x_intent`.
+5. **6 new Streamlit tests** — Total: 129 tests (127 pass, 1 pre-existing failure, 1 skipped).
+6. **Added E8_no_sentiment experiment** — ablation experiment without sentiment features.
 
 ## Session 10 Column Audit Notes
 - `customer_intent`, `sentiment_label`, `sentiment_neg/pos/neu`, `interaction_summary`, `date` — these columns exist in the **real S3 data** because the notebook (01_data_layers_and_gold.ipynb) pre-computes them via HuggingFace NLP sentiment analysis and regex intent classification on `interaction_summary` text. They flow through `build_bronze_customer()` → silver → gold correctly.
 - `column_registry.yaml` only describes raw file schemas, not the enriched columns — this is expected.
 - `build_features.py` uses `if col in df.columns` guards throughout — correct defensive coding for environments where NLP hasn't been run.
 
-## Session 9 Blockers (RESOLVED in session 10)
-1. ~~**PR-AUC = 0.289 vs notebook ~0.745**~~ — FIXED: feature_tiers.yaml rewritten to match actual gold master columns.
-2. ~~**Recommendations page error**~~ — FIXED: `score_step.py` now generates `scored/recommendations.parquet`.
-3. ~~**eval.json misleading**~~ — FIXED: saves actual `X.columns` instead of YAML list.
+## PR-AUC Gap: Root Cause Analysis (session 11)
+Production pipeline PR-AUC = ~0.4, notebook = ~0.7. Root cause is **feature parity** — the production `build_features.py` creates 41 features, but the notebook uses ~56 features.
+
+### Fix Steps to Close the PR-AUC Gap
+1. **`src/features/build_features.py`** — Add ~15 missing feature computations to match the notebook:
+   - **MP Risk features (~9):** `std_monthly_elec_kwh`, `std_monthly_gas_m3`, `std_margin`, `min_monthly_margin`, `max_negative_margin`, `elec_price_volatility_12m`, `is_price_increase`, `rolling_margin_trend`, `province_elec_cost_trend`
+   - **Behavioral features (~6):** `interaction_within_3m_of_renewal`, `complaint_near_renewal`, `is_interaction_within_30d`, `recent_complaint_flag`, `is_complaint_intent`, `intent_severity_score`
+   - **Compound features (~3):** `dual_fuel_x_renewal`, `dual_fuel_x_competition`, `complaint_x_negative_sentiment`
+2. **`configs/feature_tiers.yaml`** — Add the new feature names to the corresponding tier lists so `train_step.py` selects them for training
+3. **`src/models/churn_model.py`** (optional) — Align threshold selection with notebook approach (notebook uses full training set for threshold optimization, pipeline uses smaller validation subset)
+
+### Secondary Issue: Threshold Selection
+The notebook picks the decision threshold on the **full training set** (~16K customers), while production picks it on a **validation subset** (~4K), leading to a different operating point.
 
 ## SageMaker Quotas (updated session 8)
 - `ml.m5.large for training job usage`: 15 instances available
@@ -156,6 +155,7 @@ tests/test_imports.py              - 1 test (package import smoke test)
 ## Streamlit Dashboard
 - **ALB DNS:** `spanishgas-dev-streamlit-alb-1221532574.eu-west-1.elb.amazonaws.com`
 - ECS Fargate service: `spanishgas-dev-streamlit` in `spanishgas-dev-cluster`
+- **8 pages:** Overview, Data Explorer, Model Performance, Drift Monitor, Customer Risk, Customer Lookup, Recommendations, Pipeline Status
 
 ## Full Context
 See `CONTEXT.MD` for complete dump with all files changed, decisions, blockers, and ordered next steps.

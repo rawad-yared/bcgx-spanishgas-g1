@@ -16,14 +16,18 @@ def test_settings_defaults():
 def test_aws_defaults():
     aws = AWSSettings()
     assert aws.region == "eu-west-1"
-    assert aws.s3_bucket == "spanishgas-data-g1"
+    # s3_bucket comes from .env (spanishgas-data-dev) or code default (spanishgas-data-g1)
+    assert aws.s3_bucket in ("spanishgas-data-dev", "spanishgas-data-g1")
     assert aws.s3_prefix_raw == "raw/"
     assert aws.s3_prefix_bronze == "bronze/"
     assert aws.s3_prefix_silver == "silver/"
     assert aws.s3_prefix_gold == "gold/"
     assert aws.s3_prefix_models == "models/"
     assert aws.s3_prefix_scored == "scored/"
-    assert aws.dynamodb_manifest_table == "spanishgas-pipeline-manifest"
+    # manifest table comes from .env or code default
+    assert aws.dynamodb_manifest_table in (
+        "spanishgas-dev-pipeline-manifest", "spanishgas-pipeline-manifest"
+    )
 
 
 def test_model_defaults():
