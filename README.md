@@ -2,6 +2,8 @@
 
 An end-to-end MLOps system that predicts customer churn for 20,099 Spanish energy customers, generates retention recommendations, and serves results through an auto-deployed Streamlit dashboard. Built on AWS with Terraform IaC, GitHub Actions CI/CD, and a medallion data architecture (bronze/silver/gold).
 
+**Live Dashboard:** [spanishgas-dev-streamlit-alb-1221532574.eu-west-1.elb.amazonaws.com](http://spanishgas-dev-streamlit-alb-1221532574.eu-west-1.elb.amazonaws.com)
+
 ---
 
 ## Table of Contents
