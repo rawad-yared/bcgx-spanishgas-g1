@@ -1,12 +1,12 @@
 # Context Dump
 
-## Session Info (updated 2026-02-24 session 13)
-- **Timestamp:** 2026-02-24
+## Session Info (updated 2026-03-03 session 14)
+- **Timestamp:** 2026-03-03
 - **Branch:** `feature/aws-mlops-pipeline` (pushed to GitHub)
-- **Latest commit:** `27b85e3` — session 13 NLP enrichment + categorical dtype fix
-- **Session 13: NLP enrichment + PR-AUC 0.751** — Created `src/data/nlp.py` with regex intent classification + HuggingFace sentiment analysis. Integrated into `bronze_step.py`. Updated `Dockerfile.processing` with torch+transformers+model pre-download. 20 new tests. Fixed Pandas 3.0 ArrowStringArray conflict and Categorical dtype fillna crash. Pipeline `nlp-v3-20260224-200923` SUCCEEDED — PR-AUC = 0.751, all 56 features active. Streamlit redeployed.
-- **Pipeline execution:** `arn:aws:states:eu-west-1:559307249592:execution:spanishgas-dev-pipeline:nlp-v3-20260224-200923` — SUCCEEDED
-- **PR-AUC:** 0.751 (exceeds 0.70 promotion gate)
+- **Latest commit:** `6ad77f5` — session 14 Platt scaling + XGBoost hyperparameter alignment
+- **Session 14: Platt scaling + calibrated probabilities** — Aligned XGBoost hyperparameters with new notebook (max_depth=3, lr=0.02, colsample=0.7, logloss). Added CalibratedClassifierCV sigmoid calibration with FrozenEstimator sklearn >=1.6 compat. Pipeline `platt-v2-20260303-152610` SUCCEEDED — PR-AUC = 0.757, ROC-AUC = 0.932, threshold = 0.691. Risk tiers: Low 18,158 / Medium 673 / High 527 / Critical 741. Docker images rebuilt, Streamlit redeployed.
+- **Pipeline execution:** `arn:aws:states:eu-west-1:559307249592:execution:spanishgas-dev-pipeline:platt-v2-20260303-152610` — SUCCEEDED
+- **PR-AUC:** 0.757 (exceeds 0.70 promotion gate)
 
 ---
 
@@ -38,10 +38,19 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 | 13: Session 11 Fixes | DONE (session 11) | Drift step JSON fix, Customer Lookup fix, README Mermaid diagrams, lint fixes, Docker rebuild, pipeline re-trigger |
 | 14: Feature Parity | DONE (session 12) | build_features.py rewritten for ~56 features, XGBoost hyperparams aligned, 142 tests, Docker rebuilt, pipeline re-triggered |
 | 15: NLP Enrichment | DONE (session 13) | nlp.py (intent + sentiment), bronze_step integration, Dockerfile torch+transformers, 20 new tests, PR-AUC = 0.751 |
+| 16: Platt Scaling | DONE (session 14) | CalibratedClassifierCV sigmoid, XGBoost hyperparams aligned (depth=3, lr=0.02, colsample=0.7, logloss), PR-AUC = 0.757, Critical 741 (was 1,614) |
 
 ---
 
 ## Files Changed (and purpose)
+
+### Session 14 — Platt Scaling + XGBoost Hyperparameter Alignment:
+- `src/models/churn_model.py` - MODIFIED: XGBoost hyperparams (max_depth 5→3, lr 0.05→0.02, colsample 0.8→0.7, eval_metric aucpr→logloss). Added `CalibratedClassifierCV` Platt scaling with `FrozenEstimator` (sklearn >=1.6) / `cv="prefit"` (older) fallback. Added `sklearn.calibration` import.
+- `tests/test_models.py` - MODIFIED: Added `test_xgboost_hyperparameters` (6 param checks), `TestRunExperiment.test_returns_calibrated_pipeline` (CalibratedClassifierCV wrapping check). 7→9 tests.
+- `README.md` - MODIFIED: Model Details table (hyperparams, Platt scaling row, PR-AUC 0.757, ROC-AUC 0.932), ML architecture diagram (Platt Scaling node), test counts 162→165.
+- `notebooks/02_modeling.ipynb` - MODIFIED: Updated modeling notebook with Platt scaling approach.
+- `CLAUDE.md` - MODIFIED: Updated to session 14 state.
+- `CONTEXT.MD` - MODIFIED: Updated to session 14 state.
 
 ### Session 13 — NLP Enrichment + Pipeline PR-AUC 0.751:
 - `src/data/nlp.py` - NEW: NLP enrichment module — `classify_intent()` (regex, 8 categories, priority order), `enrich_interactions_intent()` (customer_intent + has_interaction columns), `enrich_interactions_sentiment()` (HuggingFace cardiffnlp/twitter-roberta-base-sentiment-latest, guarded import), `enrich_interactions()` orchestrator. Fixed: ArrowStringArray init (object dtype + `.values`), removed `.astype("category")` to avoid downstream fillna crash.
@@ -206,13 +215,13 @@ Implementing a 8-phase plan to convert SpanishGas Jupyter notebooks into a produ
 - `infra/terraform/modules/monitoring/` - NEW: SNS topic, CloudWatch alarms
 - `infra/terraform/modules/ecr/` - NEW: Lambda + Processing repos with lifecycle
 
-### Tests (ALL DONE — 162 passing + 1 skipped, 19 files):
+### Tests (ALL DONE — 165 passing, 0 skipped, 19 files):
 - `tests/test_settings.py` - 5 tests
 - `tests/test_ingest.py` - 6 tests
 - `tests/test_silver.py` - 8 tests
 - `tests/test_build_features.py` - 16 tests (gold features, expanded session 12)
 - `tests/test_build_training_set.py` - 5 tests
-- `tests/test_models.py` - 7 tests (xgboost test uses pytest.importorskip)
+- `tests/test_models.py` - 9 tests (preprocessing, model defs, hyperparams, calibration, scoring — expanded session 14)
 - `tests/test_reco.py` - 7 tests
 - `tests/test_nlp.py` - 20 tests (intent classification + sentiment enrichment, NEW session 13)
 - `tests/test_lambda_handler.py` - 3 tests (moto: DynamoDB + SFN mocks)
@@ -352,6 +361,9 @@ Created `src/data/nlp.py` with regex intent classification (8 categories) + Hugg
 
 ### FIXED: Categorical dtype fillna crash (session 13)
 `customer_intent` column was set as `.astype("category")` in nlp.py. Downstream `build_training_set.py` calls `fillna("no_interaction")` which fails on Categorical with unknown category. Fixed by keeping column as object dtype.
+
+### FIXED: sklearn >=1.6 removed cv="prefit" from CalibratedClassifierCV (session 14)
+Docker Processing image has sklearn >=1.6 where `CalibratedClassifierCV(estimator, cv="prefit")` raises `InvalidParameterError`. Fixed with try/except: uses `FrozenEstimator(pipeline)` wrapper on sklearn >=1.6, falls back to `cv="prefit"` on older versions.
 
 ---
 
@@ -608,6 +620,10 @@ SKIPPED: tests/test_models.py::TestModelDefinitions::test_xgboost_included_when_
 - [x] Rebuild Docker images + re-trigger pipeline (DONE session 13 — nlp-v3-20260224-200923 SUCCEEDED)
 - [x] Validate PR-AUC >= 0.70 from pipeline results (DONE session 13 — PR-AUC = 0.751)
 - [x] Redeploy Streamlit dashboard (DONE session 13 — Processing + Streamlit Docker pushed, ECS redeployed)
+- [x] Add Platt scaling + align XGBoost hyperparameters with notebook (DONE session 14 — FrozenEstimator compat)
+- [x] Rebuild Docker images + re-trigger pipeline (DONE session 14 — platt-v2-20260303-152610 SUCCEEDED, PR-AUC=0.757)
+- [x] Redeploy Streamlit with calibrated scores (DONE session 14 — Critical 741, was 1,614)
+- [x] Update README with Platt scaling + new metrics (DONE session 14)
 - [ ] Open PR: feature/aws-mlops-pipeline -> main
 
 ---

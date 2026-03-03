@@ -7,14 +7,16 @@ Churn prediction system for 20,099 Spanish energy customers. Converting Jupyter 
 `feature/aws-mlops-pipeline` (from `main`)
 
 ## Current State (session 14)
-- **PR-AUC ~ 0.751** — exceeds 0.70 promotion gate
-- **Platt scaling added** — `CalibratedClassifierCV(sigmoid, prefit)` wraps XGBoost pipeline for well-calibrated probabilities
+- **PR-AUC = 0.757, ROC-AUC = 0.932** — exceeds 0.70 promotion gate
+- **Platt scaling active** — `CalibratedClassifierCV(sigmoid)` wraps XGBoost pipeline via `FrozenEstimator` (sklearn >=1.6 compat)
 - **XGBoost hyperparams aligned with notebook** — max_depth=3, learning_rate=0.02, colsample_bytree=0.7, eval_metric="logloss"
-- **Expected risk tier distribution after redeployment:** Low ~18K, Medium ~700, High ~576, Critical ~762
+- **Risk tier distribution:** Low 18,158 / Medium 673 / High 527 / Critical 741 (was 1,614 before calibration)
 - **165 tests passing** across 19 test files, 0 skipped, 0 failures
 - **Ruff lint clean** — all checks passing
-- **Docker images need rebuild + push** — Processing + Streamlit for Platt scaling changes
-- **Pipeline needs re-trigger** — to produce calibrated scored output
+- **Latest commit:** `6ad77f5` — pushed to `origin/feature/aws-mlops-pipeline`
+- **Docker images rebuilt + pushed** — Processing + Streamlit to ECR
+- **Pipeline SUCCEEDED** — `platt-v2-20260303-152610` completed all 8 steps (~28 min)
+- **ECS Streamlit redeployed** — force new deployment with calibrated scored data
 
 ## Key Architecture
 - **S3 layout:** Single bucket, prefix-based (`raw/`, `bronze/`, `silver/`, `gold/`, `models/`, `scored/`)
@@ -70,14 +72,14 @@ make docker-build-streamlit  # build Streamlit container
 make docker-run-streamlit    # run Streamlit container locally
 ```
 
-## Test Files (19 files, 162 tests)
+## Test Files (19 files, 165 tests)
 ```
 tests/test_settings.py             - 5 tests (configs)
 tests/test_ingest.py               - 6 tests (bronze)
 tests/test_silver.py               - 8 tests (silver transforms)
 tests/test_build_features.py       - 16 tests (gold features)
 tests/test_build_training_set.py   - 5 tests (model matrix)
-tests/test_models.py               - 7 tests (preprocessing, model defs, scoring)
+tests/test_models.py               - 9 tests (preprocessing, model defs, hyperparams, calibration, scoring)
 tests/test_reco.py                 - 7 tests (recommendations)
 tests/test_nlp.py                  - 20 tests (intent classification + sentiment enrichment)
 tests/test_lambda_handler.py       - 3 tests (moto: DynamoDB + SFN mocks)
@@ -104,14 +106,18 @@ tests/test_imports.py              - 1 test (package import smoke test)
 - **Docker build note:** Must use `--platform linux/amd64 --provenance=false` for all images (Apple Silicon builds arm64 by default; Lambda/SageMaker need x86_64)
 
 ## Known Issues
-- None — PR-AUC = 0.751 confirmed, all pipeline steps passing
+- None — PR-AUC = 0.757 confirmed, all pipeline steps passing, Streamlit deployed with calibrated scores
 
-## Session 14 Changes Applied
+## Session 14 Changes Applied (committed as `6ad77f5` + pushed)
 1. **XGBoost hyperparameters aligned with new notebook** — `max_depth` 5→3, `learning_rate` 0.05→0.02, `colsample_bytree` 0.8→0.7, `eval_metric` "aucpr"→"logloss" in `src/models/churn_model.py`
-2. **Platt scaling (sigmoid calibration) added** — `CalibratedClassifierCV(pipeline, method="sigmoid", cv="prefit")` wraps the full-training pipeline using the existing validation split. Returns calibrated pipeline from `run_experiment()`.
+2. **Platt scaling (sigmoid calibration) added** — `CalibratedClassifierCV(FrozenEstimator(pipeline), method="sigmoid")` wraps the full-training pipeline using the existing validation split. Uses `FrozenEstimator` for sklearn >=1.6 compat, falls back to `cv="prefit"` for older versions. Returns calibrated pipeline from `run_experiment()`.
 3. **Tests updated** — New `test_xgboost_hyperparameters` verifies all 6 XGBoost params. New `TestRunExperiment.test_returns_calibrated_pipeline` verifies CalibratedClassifierCV wrapping. Total: 165 tests, 0 failures.
 4. **Downstream compatibility** — `scorer.py`, `score_step.py`, `train_step.py`, `artifacts.py` all work transparently (same `predict_proba()` interface, joblib handles CalibratedClassifierCV).
-5. **Expected impact** — Calibrated probabilities shift distribution: Critical customers from ~1,614 → ~762 (matching notebook).
+5. **sklearn compat fix** — First pipeline run failed because Docker image has sklearn >=1.6 where `cv="prefit"` was removed. Fixed with `FrozenEstimator` try/except import pattern.
+6. **Docker images rebuilt + pushed** — Processing + Streamlit to ECR (linux/amd64).
+7. **Pipeline result: PR-AUC = 0.757, ROC-AUC = 0.932** — `platt-v2-20260303-152610` completed all 8 steps (~28 min). Threshold = 0.691. Risk tiers: Low 18,158 / Medium 673 / High 527 / Critical 741.
+8. **ECS Streamlit redeployed** — Force new deployment with calibrated scored data. Rollout completed.
+9. **README updated** — Model details (hyperparams, Platt scaling, PR-AUC 0.757, ROC-AUC 0.932), ML architecture diagram (Platt scaling node), test counts (165+).
 
 ## Session 13 Fixes Applied (3 commits: `ad91647`, `0c8b66a`, `27b85e3`)
 1. **NLP enrichment module created** — `src/data/nlp.py`: regex intent classification (8 categories, priority order) + HuggingFace sentiment analysis (`cardiffnlp/twitter-roberta-base-sentiment-latest`). Guarded `transformers` import for environments without it.
