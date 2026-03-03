@@ -68,33 +68,7 @@ The system consumes **7 raw datasets** that describe customers, their contracts,
 
 ## High-Level Architecture
 
-```mermaid
-flowchart TB
-    RAW[Raw Files] -->|S3 event| LM[Lambda]
-    LM <--> DDB[DynamoDB]
-    LM --> SFN
-
-    subgraph Orch[Orchestration]
-        SFN[Step Fns] --> BRZ[Bronze] --> SLV[Silver] --> GLD[Gold]
-        GLD --> TRN[Train] --> EVL[Eval] --> SCR[Score] --> DFT[Drift]
-    end
-
-    Orch <--> S3[S3]
-    EVL --> REG[SM Registry]
-    DFT --> SNS_N[SNS]
-    DFT --> CW[CloudWatch]
-    S3 --> ECS
-
-    subgraph Serve[Serving]
-        ALB --> ECS --> ST[Streamlit]
-    end
-
-    subgraph CD[CI/CD]
-        GHA[GH Actions] --> TF[Terraform] --> ECR
-    end
-
-    ECR --> LM & ECS
-```
+![SpanishGas MLOps Architecture](docs/architecture_high_level.png)
 
 ---
 
@@ -102,33 +76,7 @@ flowchart TB
 
 The ETL pipeline follows a **medallion architecture** (bronze/silver/gold) implemented as SageMaker Processing Jobs orchestrated by Step Functions.
 
-```mermaid
-flowchart LR
-    subgraph Raw[Raw 7 Files]
-        R1["churn_label<br>attributes<br>contracts<br>interactions"]
-        R2["consumption<br>price_history<br>costs"]
-    end
-
-    subgraph Bronze
-        BC[bronze_customer]
-        BCM[bronze_month]
-    end
-
-    subgraph Silver
-        SC[silver_customer]
-        SCM[silver_month]
-    end
-
-    subgraph Gold
-        GM["gold_master<br>56 features"]
-    end
-
-    R1 --> BC
-    R2 --> BCM
-    BC --> SC
-    BCM --> SCM
-    SC & SCM --> GM
-```
+![Data Pipeline — Medallion Architecture](docs/architecture_data_pipeline.png)
 
 **Bronze**: `bronze_customer` merges churn labels, attributes, contracts, and NLP-enriched interactions (1 row/customer). `bronze_customer_month` aggregates hourly consumption to monthly totals with tariff tier splits and gas kWh conversion (1 row/customer/month).
 
@@ -185,31 +133,7 @@ flowchart TB
 
 ## ML Training & Evaluation Architecture
 
-```mermaid
-flowchart TD
-    GM[Gold] --> BTS[Build Set]
-    BTS --> PP[Preprocess]
-    PP --> TRAIN[Training]
-
-    TRAIN --> LR[Log Reg]
-    TRAIN --> RF[Rand Forest]
-    TRAIN --> XGB[XGBoost]
-
-    XGB --> THR[Threshold]
-    THR --> EVAL[Eval Gate]
-
-    EVAL -->|"PR-AUC ≥ 0.70"| PASS[Promoted]
-    EVAL -->|"PR-AUC < 0.70"| FAIL[Rejected]
-
-    PASS --> S3M[S3 models/]
-    PASS --> REG[SM Registry]
-
-    FAIL --> REJ[Reg Rejected]
-
-    style XGB fill:#2e7d32,color:#fff
-    style PASS fill:#2e7d32,color:#fff
-    style FAIL fill:#c62828,color:#fff
-```
+![ML Training & Evaluation](docs/architecture_ml_training.png)
 
 - **Build Training Set**: structural fills for missing values, stratified 80/20 split
 - **Preprocessing**: ColumnTransformer — numeric: StandardScaler, categorical: OneHotEncoder, binary: passthrough
@@ -260,24 +184,7 @@ flowchart TD
 
 ## Serving & Dashboard Architecture
 
-```mermaid
-flowchart LR
-    INT[Internet] --> ALB[ALB :80] --> ECS[ECS :8501] --> APP[Streamlit]
-
-    subgraph Pages[8 Pages]
-        P1["Overview · Explorer<br>Model Perf · Drift"]
-        P2["Risk · Lookup<br>Reco · Pipeline"]
-    end
-
-    APP --> Pages
-
-    subgraph Data[Data Sources]
-        S3D["S3: scored · eval<br>drift · reco"]
-        DDB[DynamoDB]
-    end
-
-    Pages --> Data
-```
+![Serving & Dashboard](docs/architecture_serving.png)
 
 | Page | Description |
 |------|-------------|
@@ -294,32 +201,7 @@ flowchart LR
 
 ## CI/CD & Deployment Architecture
 
-```mermaid
-flowchart TD
-    subgraph Triggers
-        PF[feature push]
-        PR[PR to main]
-        PM[Push main]
-        SC[Weekly / Manual]
-    end
-
-    subgraph CI[CI Workflow]
-        CIF["Ruff → Pytest → Coverage"]
-    end
-
-    subgraph Deploy[Deploy Workflow]
-        DP["OIDC → Terraform → Docker<br>→ Update Lambda → ECS"]
-    end
-
-    subgraph Retrain
-        RT["OIDC → Start SFN → Poll"]
-    end
-
-    PF & PR --> CI
-    PM --> CI --> Deploy
-    SC --> Retrain
-    Deploy & Retrain -->|OIDC| IAM[IAM Role]
-```
+![CI/CD & Deployment](docs/architecture_cicd.png)
 
 ---
 
