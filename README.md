@@ -68,7 +68,60 @@ The system consumes **7 raw datasets** that describe customers, their contracts,
 
 ## High-Level Architecture
 
-![SpanishGas MLOps Architecture](docs/architecture_high_level.png)
+```mermaid
+graph TB
+    subgraph Ingestion
+        RAW["Raw CSV /<br>JSON / Parquet"]
+        S3PUT(("S3 Put Event"))
+        LAMBDA["Lambda Trigger"]
+    end
+
+    subgraph Orchestration
+        SFN["Step Functions<br>Pipeline"]
+        BRONZE["Bronze ETL"]
+        SILVER["Silver ETL"]
+        GOLD["Gold ETL"]
+        TRAIN["Train Model"]
+        EVAL["Evaluate Model"]
+        SCORE["Score Customers"]
+        DRIFT["Drift Check"]
+    end
+
+    subgraph Storage
+        S3["S3 Data Lake"]
+        DYNAMO["DynamoDB Manifest"]
+        REGISTRY["SageMaker Registry"]
+    end
+
+    subgraph Monitoring
+        CW["CloudWatch Alarms"]
+        SNS["SNS Email Alerts"]
+    end
+
+    subgraph Serving
+        ALB["ALB"]
+        ECS["ECS Fargate"]
+        STREAMLIT["Streamlit (8 pages)"]
+    end
+
+    subgraph CICD["CI/CD"]
+        GHA["GitHub Actions"]
+        TF["Terraform IaC"]
+        ECR["ECR (3 images)"]
+    end
+
+    RAW --> S3PUT --> LAMBDA --> SFN
+    SFN --> BRONZE --> SILVER --> GOLD --> TRAIN --> EVAL --> SCORE --> DRIFT
+    BRONZE & SILVER & GOLD & TRAIN & SCORE & DRIFT <--> S3
+    LAMBDA <--> DYNAMO
+    EVAL --> REGISTRY
+    DRIFT --> SNS
+    DRIFT --> CW
+    S3 --> ECS
+    ALB --> ECS --> STREAMLIT
+    GHA --> TF --> ECR
+    ECR --> LAMBDA & ECS
+```
 
 ---
 
@@ -76,7 +129,38 @@ The system consumes **7 raw datasets** that describe customers, their contracts,
 
 The ETL pipeline follows a **medallion architecture** (bronze/silver/gold) implemented as SageMaker Processing Jobs orchestrated by Step Functions.
 
-![Data Pipeline — Medallion Architecture](docs/architecture_data_pipeline.png)
+```mermaid
+graph LR
+    subgraph RAW["Raw (7 files)"]
+        CL["churn_label"]
+        CA["customer_attributes"]
+        CC["customer_contracts"]
+        CI["interactions"]
+        CH["consumption_hourly"]
+        PH["price_history"]
+        CP["costs_by_province"]
+    end
+
+    subgraph BRONZE["Bronze"]
+        BC["bronze_customer"]
+        BCM["bronze_customer_month"]
+    end
+
+    subgraph SILVER["Silver"]
+        SC["silver_customer"]
+        SCM["silver_customer_month"]
+    end
+
+    subgraph GOLD["Gold"]
+        GM["gold_master<br/>56 features"]
+    end
+
+    CL & CA & CC & CI --> BC
+    CH & PH & CP --> BCM
+    BC --> SC
+    BCM --> SCM
+    SC & SCM --> GM
+```
 
 **Bronze**: `bronze_customer` merges churn labels, attributes, contracts, and NLP-enriched interactions (1 row/customer). `bronze_customer_month` aggregates hourly consumption to monthly totals with tariff tier splits and gas kWh conversion (1 row/customer/month).
 
@@ -87,7 +171,7 @@ The ETL pipeline follows a **medallion architecture** (bronze/silver/gold) imple
 ### Feature Tiers in Gold Master
 
 ```mermaid
-flowchart TB
+graph TB
     subgraph T1A["Tier 1A: Lifecycle (15 features)"]
         direction LR
         T1A_1["months_to_renewal<br>renewal_bucket<br>is_within_3m_of_renewal<br>tenure_months<br>tenure_bucket<br>is_expired_contract<br>segment<br>sales_channel"]
@@ -133,7 +217,31 @@ flowchart TB
 
 ## ML Training & Evaluation Architecture
 
-![ML Training & Evaluation](docs/architecture_ml_training.png)
+```mermaid
+graph TD
+    GM["Gold Master"] --> BTS["Build Training Set"]
+    BTS --> PP["Preprocessing"]
+    PP --> TRAIN["Model Training"]
+
+    TRAIN --> LR["Logistic Regression"]
+    TRAIN --> RF["Random Forest"]
+    TRAIN --> XGB["XGBoost (champion)"]
+
+    XGB --> THRESH["Threshold<br>Optimization"]
+    THRESH --> EVAL["Evaluation Gate"]
+
+    EVAL -->|"PR-AUC >= 0.70"| PASS["Promoted"]
+    EVAL -->|"PR-AUC < 0.70"| FAIL["Rejected"]
+
+    PASS --> S3_MODELS["S3: models/"]
+    PASS --> SM_REG["SageMaker Registry"]
+
+    FAIL --> SM_REJ["Registry (Rejected)"]
+
+    style XGB fill:#2e7d32,color:#fff
+    style PASS fill:#2e7d32,color:#fff
+    style FAIL fill:#c62828,color:#fff
+```
 
 - **Build Training Set**: structural fills for missing values, stratified 80/20 split
 - **Preprocessing**: ColumnTransformer — numeric: StandardScaler, categorical: OneHotEncoder, binary: passthrough
@@ -145,34 +253,35 @@ flowchart TB
 ## Monitoring & Drift Detection Architecture
 
 ```mermaid
-flowchart TD
+graph TD
     subgraph Inputs
-        REF[Reference S3]
-        SCORED[Scored Data]
+        REF["Reference Store (S3)"]
+        SCORED["Current Scored Data"]
     end
 
-    subgraph Detection
-        KS[KS Test]
-        PRED[Pred Drift]
+    subgraph Detection["Drift Detection"]
+        KS["KS Test per feature"]
+        PRED["Prediction Drift"]
     end
 
     subgraph Outputs
-        S3D[S3 Results]
-        SNS_A[SNS Alert]
-        CWM[CW Metrics]
-        CWA[CW Alarm]
+        S3D["S3:<br>drift_results.json"]
+        SNS_A["SNS Alert"]
+        CW_M["CloudWatch Metrics"]
+        CW_A["CloudWatch Alarm"]
     end
 
-    subgraph Quality
-        NR[Null Rates]
-        DK[Duplicates]
-        SV[Schema]
-        RC[Ranges]
+    subgraph Quality["Data Quality"]
+        NR["Null rate checks"]
+        DK["Duplicate detection"]
+        SV["Schema validation"]
+        RC["Range checks"]
     end
 
     REF & SCORED --> KS & PRED
-    KS & PRED --> S3D & SNS_A & CWM
-    CWM --> CWA
+    KS & PRED --> S3D
+    KS & PRED --> SNS_A
+    KS & PRED --> CW_M --> CW_A
 ```
 
 - **KS Test**: Kolmogorov-Smirnov statistic + p-value per feature, drift flagged if p < 0.01
@@ -184,7 +293,36 @@ flowchart TD
 
 ## Serving & Dashboard Architecture
 
-![Serving & Dashboard](docs/architecture_serving.png)
+```mermaid
+graph LR
+    INTERNET["Internet"] --> ALB["ALB :80"]
+    ALB --> ECS["ECS Fargate :8501"]
+    ECS --> APP["Streamlit App"]
+
+    subgraph Pages["8 Dashboard Pages"]
+        direction TB
+        P1["Overview"]
+        P2["Data Explorer"]
+        P3["Model Performance"]
+        P4["Drift Monitor"]
+        P5["Customer Risk"]
+        P6["Customer Lookup"]
+        P7["Recommendations"]
+        P8["Pipeline Status"]
+    end
+
+    APP --> Pages
+
+    subgraph Data["Data Sources"]
+        S3S["S3: scored_customers"]
+        S3E["S3: eval.json"]
+        S3DR["S3: drift_results"]
+        S3R["S3: recommendations"]
+        DDB["DynamoDB: manifest"]
+    end
+
+    Pages --> Data
+```
 
 | Page | Description |
 |------|-------------|
@@ -201,43 +339,91 @@ flowchart TD
 
 ## CI/CD & Deployment Architecture
 
-![CI/CD & Deployment](docs/architecture_cicd.png)
+```mermaid
+graph TD
+    subgraph Triggers
+        PUSH_F["Push to feature/**"]
+        PR["Pull Request to main"]
+        PUSH_M["Push to main"]
+        SCHED["Weekly Schedule"]
+        MANUAL["Manual Dispatch"]
+    end
+
+    subgraph CI["CI Workflow"]
+        LINT["Ruff Check (lint)"]
+        TEST["Pytest (162+ tests)"]
+        COV["Coverage Upload"]
+        LINT --> TEST --> COV
+    end
+
+    subgraph Deploy["Deploy Workflow"]
+        OIDC["AWS OIDC Login"]
+        TF_PLAN["Terraform<br>Init / Plan / Apply"]
+        DOCKER["Docker Build + Push"]
+        UPDATE_LAMBDA["Update Lambda Code"]
+        ECS_DEPLOY["Force ECS Redeploy"]
+        OIDC --> TF_PLAN --> DOCKER --> UPDATE_LAMBDA --> ECS_DEPLOY
+    end
+
+    subgraph Retrain["Retrain Workflow"]
+        OIDC2["AWS OIDC Login"]
+        SFN_START["Start Step Functions"]
+        POLL["Poll for Completion"]
+        OIDC2 --> SFN_START --> POLL
+    end
+
+    PUSH_F & PR --> CI
+    PUSH_M --> CI --> Deploy
+    SCHED & MANUAL --> Retrain
+
+    subgraph Auth["Authentication"]
+        GH_OIDC["GitHub OIDC"]
+        IAM_ROLE["IAM Deploy Role"]
+        GH_OIDC --> IAM_ROLE
+    end
+
+    Deploy & Retrain --> Auth
+```
 
 ---
 
 ## Infrastructure Architecture
 
 ```mermaid
-flowchart TB
-    subgraph TF[Terraform 11 Modules]
-        direction LR
-        subgraph Store[Storage]
-            S3M[S3]
-            DDBM[DynamoDB]
-            ECRM[ECR]
+graph TB
+    subgraph Terraform["Terraform Infrastructure<br>(11 modules)"]
+        direction TB
+
+        subgraph Storage_Infra["Storage"]
+            S3_MOD["S3"]
+            DDB_MOD["DynamoDB"]
+            ECR_MOD["ECR (3 repos)"]
         end
-        subgraph Compute
-            LMM[Lambda]
-            SFNM[Step Fns]
-            SMM[SageMaker]
+
+        subgraph Compute_Infra["Compute"]
+            LAMBDA_MOD["Lambda"]
+            SFN_MOD["Step Functions"]
+            SM_MOD["SageMaker"]
         end
-        subgraph Net[Networking]
-            VPCM[VPC + SGs]
-            ECSM[ECS + ALB]
+
+        subgraph Network_Infra["Networking"]
+            NET_MOD["VPC +<br>Security Groups"]
+            ECS_MOD["ECS + ALB"]
         end
-        subgraph Sec[Security]
-            IAMM[IAM]
-            MONM[Monitoring]
-            OIDCM[GH OIDC]
+
+        subgraph Security_Infra["Security"]
+            IAM_MOD["IAM (5 roles)"]
+            MON_MOD["Monitoring + SNS"]
+            OIDC_MOD["GitHub OIDC"]
         end
     end
 
-    subgraph Backend
-        S3S[S3 State]
-        DDBL[DDB Locks]
+    subgraph Backend["State Backend"]
+        S3_STATE["S3 (TF state)"]
+        DDB_LOCK["DynamoDB (locks)"]
     end
 
-    TF --> Backend
+    Terraform --> Backend
 ```
 
 ---
