@@ -90,7 +90,8 @@ class TestGenerateRecommendations:
             "churn_proba": [0.85],
             "risk_tier": ["Critical (>80%)"],
             "segment": ["Residential"],
-            "expected_monthly_loss": [-10.0],
+            "expected_monthly_loss": [0.0],
+            "avg_monthly_margin": [-10.0],
         })
         recs = generate_recommendations(scored)
         assert recs[0].action == "no_offer"

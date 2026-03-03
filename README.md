@@ -272,9 +272,10 @@ graph TD
     TRAIN --> RF["Random Forest"]
     TRAIN --> XGB["XGBoost (champion)"]
 
+    XGB --> THRESH["Threshold<br>Optimization<br>(raw probabilities)"]
     XGB --> PLATT["Platt Scaling<br>(Sigmoid Calibration)"]
-    PLATT --> THRESH["Threshold<br>Optimization"]
     THRESH --> EVAL["Evaluation Gate"]
+    PLATT --> SCORED_OUT["Scored Output<br>(calibrated probabilities)"]
 
     EVAL -->|"PR-AUC >= 0.70"| PASS["Promoted"]
     EVAL -->|"PR-AUC < 0.70"| FAIL["Rejected"]
@@ -291,8 +292,8 @@ graph TD
 
 - **Build Training Set**: structural fills for missing values, stratified 80/20 split
 - **Preprocessing**: ColumnTransformer — numeric: StandardScaler, categorical: OneHotEncoder, binary: passthrough
-- **Threshold Optimization**: maximize precision at recall >= 0.70 (on 75/25 validation split from training data)
-- **Platt Scaling**: sigmoid calibration (`CalibratedClassifierCV`) wraps the trained pipeline for well-calibrated probabilities, reducing over-confident predictions
+- **Threshold Optimization**: maximize precision at recall >= 0.70, selected on **raw** (pre-calibration) probabilities from a 75/25 validation split of the training data
+- **Platt Scaling**: sigmoid calibration (`CalibratedClassifierCV`) wraps the trained pipeline for well-calibrated probabilities used in scoring output; threshold is found on raw probabilities then applied to calibrated probabilities during scoring
 - **Artifacts**: `pipeline.pkl`, `metadata.json`, `eval.json` saved to S3
 
 ---
@@ -767,7 +768,7 @@ The gold master contains **56 features** organized into 7 tiers, tested across 9
 | Features | 56 features across 7 tiers (lifecycle, market, risk, behavioral, sentiment, compound, strings) |
 | NLP enrichment | Regex intent classification (8 categories) + HuggingFace sentiment (`cardiffnlp/twitter-roberta-base-sentiment-latest`) |
 | Target | `churned_within_horizon` (binary) |
-| Threshold | Optimized for precision at recall >= 0.70 (auto-selected ~0.69) |
+| Threshold | Optimized for precision at recall >= 0.70 on raw probabilities (auto-selected ~0.72) |
 | PR-AUC | **0.757** (production pipeline, exceeds 0.70 gate) |
 | ROC-AUC | **0.932** |
 | Promotion gate | PR-AUC >= 0.70 |
@@ -788,6 +789,6 @@ The recommendation engine maps risk tiers to retention actions with policy guard
 | Critical (>80%) | Large offer | Immediate |
 
 **Guardrails:**
-- No negative-margin offers: if `expected_margin_impact < 0`, action forced to `no_offer`
+- No negative-margin offers: if `avg_monthly_margin < 0`, action forced to `no_offer` (checks actual margin, not clipped expected loss)
 - Explainability required: every recommendation must include non-empty `reason_codes`
 - Risk score validated to [0, 1] range

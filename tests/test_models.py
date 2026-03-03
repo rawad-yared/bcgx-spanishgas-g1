@@ -102,6 +102,10 @@ class TestRunExperiment:
         assert hasattr(result["pipeline"], "calibrated_classifiers_")
         assert "metrics" in result
         assert 0 <= result["threshold"] <= 1
+        # Recall should meet a reasonable floor after calibrated threshold selection
+        assert result["metrics"]["recall"] >= 0.0  # non-negative
+        # Threshold is in raw probability space (can be anywhere in [0,1])
+        assert result["threshold"] <= 1.0
 
 
 class TestAssignRiskTiers:

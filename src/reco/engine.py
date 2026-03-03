@@ -69,8 +69,9 @@ def generate_recommendations(scored: pd.DataFrame) -> list[Recommendation]:
 
         margin_impact = float(row.get("expected_monthly_loss", 0))
 
-        # Guardrail: no negative-margin offers
-        if margin_impact < 0:
+        # Guardrail: no offer for negative-margin customers
+        avg_margin = float(row.get("avg_monthly_margin", 0))
+        if avg_margin < 0:
             action = "no_offer"
 
         reason_codes = _build_reason_codes(row)
