@@ -173,43 +173,88 @@ graph LR
 ```mermaid
 graph TB
     subgraph T1A["Tier 1A: Lifecycle (15 features)"]
-        direction LR
-        T1A_1["months_to_renewal<br>renewal_bucket<br>is_within_3m_of_renewal<br>tenure_months<br>tenure_bucket<br>is_expired_contract<br>segment<br>sales_channel"]
-        T1A_2["is_high_competition_province<br>is_second_residence<br>is_dual_fuel<br>portfolio_type<br>is_digital_channel<br>is_comparison_channel<br>is_own_website_channel"]
+        t1a_01["months_to_renewal"]
+        t1a_02["renewal_bucket"]
+        t1a_03["is_within_3m_of_renewal"]
+        t1a_04["tenure_months"]
+        t1a_05["tenure_bucket"]
+        t1a_06["is_expired_contract"]
+        t1a_07["segment"]
+        t1a_08["sales_channel"]
+        t1a_09["is_high_competition_province"]
+        t1a_10["is_second_residence"]
+        t1a_11["is_dual_fuel"]
+        t1a_12["portfolio_type"]
+        t1a_13["is_digital_channel"]
+        t1a_14["is_comparison_channel"]
+        t1a_15["is_own_website_channel"]
     end
 
     subgraph TMP_CORE["Tier MP Core: Market & Pricing (8 features)"]
-        direction LR
-        MPC_1["avg_monthly_elec_kwh<br>total_elec_kwh_2024<br>avg_monthly_gas_m3<br>total_gas_m3_2024"]
-        MPC_2["gas_share_of_revenue<br>price_update_count<br>province_avg_elec_cost_2024<br>province_avg_gas_cost_2024"]
+        mpc_01["avg_monthly_elec_kwh"]
+        mpc_02["total_elec_kwh_2024"]
+        mpc_03["avg_monthly_gas_m3"]
+        mpc_04["total_gas_m3_2024"]
+        mpc_05["gas_share_of_revenue"]
+        mpc_06["price_update_count"]
+        mpc_07["province_avg_elec_cost_2024"]
+        mpc_08["province_avg_gas_cost_2024"]
     end
 
     subgraph TMP_RISK["Tier MP Risk: Volatility & Trends (13 features)"]
-        direction LR
-        MPR_1["std_monthly_elec_kwh<br>std_monthly_gas_m3<br>active_months_count<br>std_margin<br>min_monthly_margin<br>max_negative_margin<br>elec_price_trend_12m"]
-        MPR_2["gas_price_trend_12m<br>elec_price_volatility_12m<br>province_elec_cost_trend<br>elec_price_vs_province_cost_spread<br>is_price_increase<br>rolling_margin_trend"]
+        mpr_01["std_monthly_elec_kwh"]
+        mpr_02["std_monthly_gas_m3"]
+        mpr_03["active_months_count"]
+        mpr_04["std_margin"]
+        mpr_05["min_monthly_margin"]
+        mpr_06["max_negative_margin"]
+        mpr_07["elec_price_trend_12m"]
+        mpr_08["gas_price_trend_12m"]
+        mpr_09["elec_price_volatility_12m"]
+        mpr_10["province_elec_cost_trend"]
+        mpr_11["elec_price_vs_province_cost_spread"]
+        mpr_12["is_price_increase"]
+        mpr_13["rolling_margin_trend"]
     end
 
     subgraph T2A["Tier 2A: Behavioral (11 features)"]
-        direction LR
-        B_1["has_interaction<br>customer_intent<br>is_cancellation_intent<br>is_complaint_intent<br>recent_complaint_flag<br>intent_severity_score"]
-        B_2["last_interaction_days_ago<br>interaction_within_3m_of_renewal<br>is_interaction_within_30d_of_renewal<br>complaint_near_renewal<br>months_since_last_change"]
+        t2a_01["has_interaction"]
+        t2a_02["customer_intent"]
+        t2a_03["is_cancellation_intent"]
+        t2a_04["is_complaint_intent"]
+        t2a_05["recent_complaint_flag"]
+        t2a_06["intent_severity_score"]
+        t2a_07["last_interaction_days_ago"]
+        t2a_08["interaction_within_3m_of_renewal"]
+        t2a_09["is_interaction_within_30d_of_renewal"]
+        t2a_10["complaint_near_renewal"]
+        t2a_11["months_since_last_change"]
     end
 
     subgraph T2B["Tier 2B: Sentiment (3 features)"]
-        S_1["sentiment_label<br>is_negative_sentiment<br>complaint_x_negative_sentiment"]
+        t2b_01["sentiment_label"]
+        t2b_02["is_negative_sentiment"]
+        t2b_03["complaint_x_negative_sentiment"]
     end
 
     subgraph T3["Tier 3: Compound (6 features)"]
-        direction LR
-        C_1["is_price_sensitive<br>is_high_risk_lifecycle<br>is_competition_x_renewal"]
-        C_2["dual_fuel_x_renewal<br>dual_fuel_x_competition<br>dual_fuel_x_intent"]
+        t3_01["is_price_sensitive"]
+        t3_02["is_high_risk_lifecycle"]
+        t3_03["is_competition_x_renewal"]
+        t3_04["dual_fuel_x_renewal"]
+        t3_05["dual_fuel_x_competition"]
+        t3_06["dual_fuel_x_intent"]
     end
 
     subgraph T1B["Tier 1B: Interaction Strings (8 features)"]
-        direction LR
-        IS_1["intent_x_renewal_bucket<br>intent_x_tenure_bucket<br>sentiment_x_renewal_bucket<br>intent_x_sentiment"]
-        IS_2["tenure_x_renewal_bucket<br>sales_channel_x_renewal_bucket<br>has_interaction_x_renewal_bucket<br>competition_x_intent"]
+        t1b_01["intent_x_renewal_bucket"]
+        t1b_02["intent_x_tenure_bucket"]
+        t1b_03["sentiment_x_renewal_bucket"]
+        t1b_04["intent_x_sentiment"]
+        t1b_05["tenure_x_renewal_bucket"]
+        t1b_06["sales_channel_x_renewal_bucket"]
+        t1b_07["has_interaction_x_renewal_bucket"]
+        t1b_08["competition_x_intent"]
     end
 ```
 
