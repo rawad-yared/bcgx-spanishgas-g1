@@ -272,7 +272,8 @@ graph TD
     TRAIN --> RF["Random Forest"]
     TRAIN --> XGB["XGBoost (champion)"]
 
-    XGB --> THRESH["Threshold<br>Optimization"]
+    XGB --> PLATT["Platt Scaling<br>(Sigmoid Calibration)"]
+    PLATT --> THRESH["Threshold<br>Optimization"]
     THRESH --> EVAL["Evaluation Gate"]
 
     EVAL -->|"PR-AUC >= 0.70"| PASS["Promoted"]
@@ -290,7 +291,8 @@ graph TD
 
 - **Build Training Set**: structural fills for missing values, stratified 80/20 split
 - **Preprocessing**: ColumnTransformer — numeric: StandardScaler, categorical: OneHotEncoder, binary: passthrough
-- **Threshold Optimization**: maximize precision at recall >= 0.70
+- **Threshold Optimization**: maximize precision at recall >= 0.70 (on 75/25 validation split from training data)
+- **Platt Scaling**: sigmoid calibration (`CalibratedClassifierCV`) wraps the trained pipeline for well-calibrated probabilities, reducing over-confident predictions
 - **Artifacts**: `pipeline.pkl`, `metadata.json`, `eval.json` saved to S3
 
 ---
@@ -396,7 +398,7 @@ graph TD
 
     subgraph CI["CI Workflow"]
         LINT["Ruff Check (lint)"]
-        TEST["Pytest (162+ tests)"]
+        TEST["Pytest (165+ tests)"]
         COV["Coverage Upload"]
         LINT --> TEST --> COV
     end
@@ -553,7 +555,7 @@ graph TB
 │   ├── ci.yml                       # Lint + test on push/PR
 │   ├── deploy.yml                   # Terraform + Docker + ECS on push to main
 │   └── retrain.yml                  # Weekly/manual Step Functions trigger
-├── tests/                           # 19 test files, 162+ tests
+├── tests/                           # 19 test files, 165+ tests
 ├── notebooks/                       # Source Jupyter notebooks (01: ETL, 02: modeling)
 ├── Dockerfile.lambda                # Lambda container image
 ├── Dockerfile.processing            # SageMaker Processing container image
@@ -597,7 +599,7 @@ cp .env.example .env
 
 # 5. Verify everything works
 make lint    # ruff check — should pass clean
-make test    # pytest — should pass 162+ tests
+make test    # pytest — should pass 165+ tests
 ```
 
 ### Running the Pipeline Locally
@@ -760,12 +762,14 @@ The gold master contains **56 features** organized into 7 tiers, tested across 9
 | Property | Value |
 |----------|-------|
 | Algorithm | XGBoost (E5_full experiment) |
-| Hyperparameters | n_estimators=600, lr=0.05, max_depth=5, subsample=0.8, colsample_bytree=0.8 |
+| Hyperparameters | n_estimators=600, lr=0.02, max_depth=3, subsample=0.8, colsample_bytree=0.7, eval_metric=logloss |
+| Calibration | Platt scaling via `CalibratedClassifierCV(sigmoid)` for well-calibrated probabilities |
 | Features | 56 features across 7 tiers (lifecycle, market, risk, behavioral, sentiment, compound, strings) |
 | NLP enrichment | Regex intent classification (8 categories) + HuggingFace sentiment (`cardiffnlp/twitter-roberta-base-sentiment-latest`) |
 | Target | `churned_within_horizon` (binary) |
-| Threshold | Optimized for precision at recall >= 0.70 |
-| PR-AUC | **0.751** (production pipeline, exceeds 0.70 gate) |
+| Threshold | Optimized for precision at recall >= 0.70 (auto-selected ~0.69) |
+| PR-AUC | **0.757** (production pipeline, exceeds 0.70 gate) |
+| ROC-AUC | **0.932** |
 | Promotion gate | PR-AUC >= 0.70 |
 | Risk tiers | Low (<40%), Medium (40-60%), High (60-80%), Critical (>80%) |
 | Retraining | Weekly (Monday 06:00 UTC) or manual trigger |

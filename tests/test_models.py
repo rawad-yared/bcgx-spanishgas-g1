@@ -4,7 +4,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.models.churn_model import evaluate_model, get_model_definitions, pick_threshold
+from src.models.churn_model import (
+    evaluate_model,
+    get_model_definitions,
+    pick_threshold,
+    run_experiment,
+)
 from src.models.preprocessing import build_preprocessing_pipeline
 from src.models.scorer import assign_risk_tiers
 
@@ -49,6 +54,17 @@ class TestModelDefinitions:
         models = get_model_definitions(sample_y)
         assert "xgboost" in models
 
+    def test_xgboost_hyperparameters(self, sample_y):
+        pytest.importorskip("xgboost")
+        models = get_model_definitions(sample_y)
+        xgb = models["xgboost"]
+        assert xgb.max_depth == 3
+        assert xgb.learning_rate == 0.02
+        assert xgb.colsample_bytree == 0.7
+        assert xgb.eval_metric == "logloss"
+        assert xgb.n_estimators == 600
+        assert xgb.subsample == 0.8
+
 
 class TestPickThreshold:
     def test_threshold_in_valid_range(self):
@@ -69,6 +85,23 @@ class TestEvaluateModel:
         assert "recall" in metrics
         assert "f1" in metrics
         assert "tp" in metrics
+
+
+class TestRunExperiment:
+    def test_returns_calibrated_pipeline(self, sample_X, sample_y):
+        from sklearn.calibration import CalibratedClassifierCV
+        from sklearn.model_selection import train_test_split
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            sample_X, sample_y, test_size=0.2, stratify=sample_y, random_state=42
+        )
+        result = run_experiment(
+            X_train, y_train, X_test, y_test, model_name="logistic_regression"
+        )
+        assert isinstance(result["pipeline"], CalibratedClassifierCV)
+        assert hasattr(result["pipeline"], "calibrated_classifiers_")
+        assert "metrics" in result
+        assert 0 <= result["threshold"] <= 1
 
 
 class TestAssignRiskTiers:

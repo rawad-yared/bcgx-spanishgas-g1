@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -51,12 +52,12 @@ def get_model_definitions(y_train: pd.Series | None = None) -> dict[str, Any]:
 
         models["xgboost"] = XGBClassifier(
             n_estimators=600,
-            max_depth=5,
-            learning_rate=0.05,
+            max_depth=3,
+            learning_rate=0.02,
             subsample=0.8,
-            colsample_bytree=0.8,
+            colsample_bytree=0.7,
             scale_pos_weight=scale_weight,
-            eval_metric="aucpr",
+            eval_metric="logloss",
             random_state=42,
             n_jobs=-1,
             use_label_encoder=False,
@@ -156,12 +157,21 @@ def run_experiment(
     val_proba = val_pipeline.predict_proba(X_val)[:, 1]
     threshold = pick_threshold(y_val, val_proba, target_recall)
 
-    # Final evaluation on test set (refit on full training)
-    test_proba = pipeline.predict_proba(X_test)[:, 1]
+    # Platt scaling (sigmoid calibration) on the full-training pipeline
+    try:
+        from sklearn.frozen import FrozenEstimator
+
+        calibrated = CalibratedClassifierCV(FrozenEstimator(pipeline), method="sigmoid")
+    except ImportError:
+        calibrated = CalibratedClassifierCV(pipeline, method="sigmoid", cv="prefit")
+    calibrated.fit(X_val, y_val)
+
+    # Final evaluation on test set using calibrated pipeline
+    test_proba = calibrated.predict_proba(X_test)[:, 1]
     metrics = evaluate_model(y_test, test_proba, threshold)
 
     return {
-        "pipeline": pipeline,
+        "pipeline": calibrated,
         "threshold": threshold,
         "metrics": metrics,
         "model_name": model_name,

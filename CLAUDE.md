@@ -6,16 +6,15 @@ Churn prediction system for 20,099 Spanish energy customers. Converting Jupyter 
 ## Branch
 `feature/aws-mlops-pipeline` (from `main`)
 
-## Current State (session 13)
-- **PR-AUC = 0.751** — exceeds 0.70 promotion gate (was 0.53 before NLP enrichment)
-- **NLP enrichment integrated** — `src/data/nlp.py` added: regex intent classification (8 categories) + HuggingFace sentiment analysis (`cardiffnlp/twitter-roberta-base-sentiment-latest`)
-- **All 56 features active** — 0 missing features in pipeline
-- **162 tests passing** across 19 test files, 1 skipped (xgboost conditional), 0 failures
+## Current State (session 14)
+- **PR-AUC ~ 0.751** — exceeds 0.70 promotion gate
+- **Platt scaling added** — `CalibratedClassifierCV(sigmoid, prefit)` wraps XGBoost pipeline for well-calibrated probabilities
+- **XGBoost hyperparams aligned with notebook** — max_depth=3, learning_rate=0.02, colsample_bytree=0.7, eval_metric="logloss"
+- **Expected risk tier distribution after redeployment:** Low ~18K, Medium ~700, High ~576, Critical ~762
+- **165 tests passing** across 19 test files, 0 skipped, 0 failures
 - **Ruff lint clean** — all checks passing
-- **Latest commit:** `27b85e3` — pushed to `origin/feature/aws-mlops-pipeline`
-- **Docker images rebuilt + pushed** — Processing (with torch+transformers+model) + Streamlit rebuilt for linux/amd64, pushed to ECR
-- **Pipeline SUCCEEDED** — `nlp-v3-20260224-200923` completed all 8 steps (~25 min)
-- **ECS Streamlit redeployed** — force new deployment triggered with latest scored data
+- **Docker images need rebuild + push** — Processing + Streamlit for Platt scaling changes
+- **Pipeline needs re-trigger** — to produce calibrated scored output
 
 ## Key Architecture
 - **S3 layout:** Single bucket, prefix-based (`raw/`, `bronze/`, `silver/`, `gold/`, `models/`, `scored/`)
@@ -106,6 +105,13 @@ tests/test_imports.py              - 1 test (package import smoke test)
 
 ## Known Issues
 - None — PR-AUC = 0.751 confirmed, all pipeline steps passing
+
+## Session 14 Changes Applied
+1. **XGBoost hyperparameters aligned with new notebook** — `max_depth` 5→3, `learning_rate` 0.05→0.02, `colsample_bytree` 0.8→0.7, `eval_metric` "aucpr"→"logloss" in `src/models/churn_model.py`
+2. **Platt scaling (sigmoid calibration) added** — `CalibratedClassifierCV(pipeline, method="sigmoid", cv="prefit")` wraps the full-training pipeline using the existing validation split. Returns calibrated pipeline from `run_experiment()`.
+3. **Tests updated** — New `test_xgboost_hyperparameters` verifies all 6 XGBoost params. New `TestRunExperiment.test_returns_calibrated_pipeline` verifies CalibratedClassifierCV wrapping. Total: 165 tests, 0 failures.
+4. **Downstream compatibility** — `scorer.py`, `score_step.py`, `train_step.py`, `artifacts.py` all work transparently (same `predict_proba()` interface, joblib handles CalibratedClassifierCV).
+5. **Expected impact** — Calibrated probabilities shift distribution: Critical customers from ~1,614 → ~762 (matching notebook).
 
 ## Session 13 Fixes Applied (3 commits: `ad91647`, `0c8b66a`, `27b85e3`)
 1. **NLP enrichment module created** — `src/data/nlp.py`: regex intent classification (8 categories, priority order) + HuggingFace sentiment analysis (`cardiffnlp/twitter-roberta-base-sentiment-latest`). Guarded `transformers` import for environments without it.
