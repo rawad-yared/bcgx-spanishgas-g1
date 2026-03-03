@@ -71,13 +71,13 @@ The system consumes **7 raw datasets** that describe customers, their contracts,
 ```mermaid
 graph TB
     subgraph Ingestion
-        RAW["Raw CSV / JSON / Parquet"]
+        RAW["Raw CSV /<br>JSON / Parquet"]
         S3PUT(("S3 Put Event"))
         LAMBDA["Lambda Trigger"]
     end
 
     subgraph Orchestration
-        SFN["Step Functions Pipeline"]
+        SFN["Step Functions<br>Pipeline"]
         BRONZE["Bronze ETL"]
         SILVER["Silver ETL"]
         GOLD["Gold ETL"]
@@ -172,82 +172,44 @@ graph LR
 
 ```mermaid
 graph TB
-    subgraph T1A["Tier 1A: Lifecycle"]
+    subgraph T1A["Tier 1A: Lifecycle (15 features)"]
         direction LR
-        L1["months_to_renewal"]
-        L2["tenure_months"]
-        L3["renewal_bucket"]
-        L4["contract_term"]
-        L5["has_active_contract"]
+        T1A_1["months_to_renewal<br>renewal_bucket<br>is_within_3m_of_renewal<br>tenure_months<br>tenure_bucket<br>is_expired_contract<br>segment<br>sales_channel"]
+        T1A_2["is_high_competition_province<br>is_second_residence<br>is_dual_fuel<br>portfolio_type<br>is_digital_channel<br>is_comparison_channel<br>is_own_website_channel"]
     end
 
-    subgraph TMP_CORE["Tier MP Core: Market & Pricing"]
+    subgraph TMP_CORE["Tier MP Core: Market & Pricing (8 features)"]
         direction LR
-        M1["avg_monthly_elec_kwh"]
-        M2["avg_monthly_gas_m3"]
-        M3["avg_elec_price"]
-        M4["avg_gas_price"]
-        M5["price_vs_benchmark"]
-        M6["is_dual_fuel"]
+        MPC_1["avg_monthly_elec_kwh<br>total_elec_kwh_2024<br>avg_monthly_gas_m3<br>total_gas_m3_2024"]
+        MPC_2["gas_share_of_revenue<br>price_update_count<br>province_avg_elec_cost_2024<br>province_avg_gas_cost_2024"]
     end
 
-    subgraph TMP_RISK["Tier MP Risk: Volatility & Trends"]
+    subgraph TMP_RISK["Tier MP Risk: Volatility & Trends (13 features)"]
         direction LR
-        R1["std_monthly_elec_kwh"]
-        R2["std_monthly_gas_m3"]
-        R3["active_months_count"]
-        R4["std_margin"]
-        R5["min_monthly_margin"]
-        R6["max_negative_margin"]
-        R7["elec_price_trend_12m"]
-        R8["gas_price_trend_12m"]
-        R9["elec_price_volatility_12m"]
-        R10["province_elec_cost_trend"]
-        R11["elec_price_vs_province_cost_spread"]
-        R12["is_price_increase"]
-        R13["rolling_margin_trend"]
+        MPR_1["std_monthly_elec_kwh<br>std_monthly_gas_m3<br>active_months_count<br>std_margin<br>min_monthly_margin<br>max_negative_margin<br>elec_price_trend_12m"]
+        MPR_2["gas_price_trend_12m<br>elec_price_volatility_12m<br>province_elec_cost_trend<br>elec_price_vs_province_cost_spread<br>is_price_increase<br>rolling_margin_trend"]
     end
 
-    subgraph T2A["Tier 2A: Behavioral"]
+    subgraph T2A["Tier 2A: Behavioral (11 features)"]
         direction LR
-        B1["interaction_count"]
-        B2["days_since_last_interaction"]
-        B3["complaint_count"]
-        B4["has_billing_issue"]
-        B5["is_cancellation_intent"]
-        B6["is_complaint_intent"]
-        B7["recent_complaint_flag"]
-        B8["intent_severity_score"]
-        B9["interaction_within_3m_of_renewal"]
-        B10["is_interaction_within_30d_of_renewal"]
-        B11["complaint_near_renewal"]
-        B12["months_since_last_change"]
+        B_1["has_interaction<br>customer_intent<br>is_cancellation_intent<br>is_complaint_intent<br>recent_complaint_flag<br>intent_severity_score"]
+        B_2["last_interaction_days_ago<br>interaction_within_3m_of_renewal<br>is_interaction_within_30d_of_renewal<br>complaint_near_renewal<br>months_since_last_change"]
     end
 
-    subgraph T2B["Tier 2B: Sentiment"]
-        direction LR
-        S1["sentiment_label"]
-        S2["is_negative_sentiment"]
+    subgraph T2B["Tier 2B: Sentiment (3 features)"]
+        S_1["sentiment_label<br>is_negative_sentiment<br>complaint_x_negative_sentiment"]
     end
 
-    subgraph T3["Tier 3: Compound"]
+    subgraph T3["Tier 3: Compound (6 features)"]
         direction LR
-        C1["is_high_risk_lifecycle"]
-        C2["is_competition_x_renewal"]
-        C3["dual_fuel_x_renewal"]
-        C4["dual_fuel_x_competition"]
-        C5["dual_fuel_x_intent"]
-        C6["complaint_x_negative_sentiment"]
-        C7["sales_channel_x_renewal_bucket"]
-        C8["has_interaction_x_renewal_bucket"]
-        C9["competition_x_intent"]
+        C_1["is_price_sensitive<br>is_high_risk_lifecycle<br>is_competition_x_renewal"]
+        C_2["dual_fuel_x_renewal<br>dual_fuel_x_competition<br>dual_fuel_x_intent"]
     end
 
-    subgraph T1B["Tier 1B: Interaction Strings"]
+    subgraph T1B["Tier 1B: Interaction Strings (8 features)"]
         direction LR
-        IS1["lifecycle_string"]
-        IS2["market_string"]
-        IS3["behavioral_string"]
+        IS_1["intent_x_renewal_bucket<br>intent_x_tenure_bucket<br>sentiment_x_renewal_bucket<br>intent_x_sentiment"]
+        IS_2["tenure_x_renewal_bucket<br>sales_channel_x_renewal_bucket<br>has_interaction_x_renewal_bucket<br>competition_x_intent"]
     end
 ```
 
@@ -265,7 +227,7 @@ graph TD
     TRAIN --> RF["Random Forest"]
     TRAIN --> XGB["XGBoost (champion)"]
 
-    XGB --> THRESH["Threshold Optimization"]
+    XGB --> THRESH["Threshold<br>Optimization"]
     THRESH --> EVAL["Evaluation Gate"]
 
     EVAL -->|"PR-AUC >= 0.70"| PASS["Promoted"]
@@ -303,7 +265,7 @@ graph TD
     end
 
     subgraph Outputs
-        S3D["S3: drift_results.json"]
+        S3D["S3:<br>drift_results.json"]
         SNS_A["SNS Alert"]
         CW_M["CloudWatch Metrics"]
         CW_A["CloudWatch Alarm"]
@@ -396,7 +358,7 @@ graph TD
 
     subgraph Deploy["Deploy Workflow"]
         OIDC["AWS OIDC Login"]
-        TF_PLAN["Terraform Init/Plan/Apply"]
+        TF_PLAN["Terraform<br>Init / Plan / Apply"]
         DOCKER["Docker Build + Push"]
         UPDATE_LAMBDA["Update Lambda Code"]
         ECS_DEPLOY["Force ECS Redeploy"]
@@ -429,7 +391,7 @@ graph TD
 
 ```mermaid
 graph TB
-    subgraph Terraform["Terraform Infrastructure (11 modules)"]
+    subgraph Terraform["Terraform Infrastructure<br>(11 modules)"]
         direction TB
 
         subgraph Storage_Infra["Storage"]
@@ -445,7 +407,7 @@ graph TB
         end
 
         subgraph Network_Infra["Networking"]
-            NET_MOD["VPC + Security Groups"]
+            NET_MOD["VPC +<br>Security Groups"]
             ECS_MOD["ECS + ALB"]
         end
 
