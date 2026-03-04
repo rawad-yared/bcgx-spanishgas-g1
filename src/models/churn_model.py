@@ -159,9 +159,14 @@ def run_experiment(
         calibrated = CalibratedClassifierCV(pipeline, method="sigmoid", cv="prefit")
     calibrated.fit(X_val, y_val)
 
-    # Threshold on RAW validation probabilities (matches notebook operating point)
-    val_proba_raw = pipeline.predict_proba(X_val)[:, 1]
-    threshold = pick_threshold(y_val, val_proba_raw, target_recall)
+    # Threshold on held-out validation via sub-train model (matches notebook Step 2-3)
+    val_pipeline = Pipeline([
+        ("preprocessor", build_preprocessing_pipeline(X_tr_sub, scale_numeric=is_linear, ohe_sparse=False)),
+        ("model", models[model_name].__class__(**models[model_name].get_params())),
+    ])
+    val_pipeline.fit(X_tr_sub, y_tr_sub)
+    val_proba = val_pipeline.predict_proba(X_val)[:, 1]
+    threshold = pick_threshold(y_val, val_proba, target_recall)
 
     # Evaluate on test using RAW probabilities (matches notebook Step 4)
     test_proba_raw = pipeline.predict_proba(X_test)[:, 1]
