@@ -272,7 +272,7 @@ graph TD
     TRAIN --> RF["Random Forest"]
     TRAIN --> XGB["XGBoost (champion)"]
 
-    XGB --> THRESH["Threshold<br>Optimization<br>(raw probabilities)"]
+    XGB --> THRESH["Threshold<br>Optimization<br>(sub-train held-out)"]
     XGB --> PLATT["Platt Scaling<br>(Sigmoid Calibration)"]
     THRESH --> EVAL["Evaluation Gate"]
     PLATT --> SCORED_OUT["Scored Output<br>(calibrated probabilities)"]
@@ -292,8 +292,8 @@ graph TD
 
 - **Build Training Set**: structural fills for missing values, stratified 80/20 split
 - **Preprocessing**: ColumnTransformer — numeric: StandardScaler, categorical: OneHotEncoder, binary: passthrough
-- **Threshold Optimization**: maximize precision at recall >= 0.70, selected on **raw** (pre-calibration) probabilities from a 75/25 validation split of the training data
-- **Platt Scaling**: sigmoid calibration (`CalibratedClassifierCV`) wraps the trained pipeline for well-calibrated probabilities used in scoring output; threshold is found on raw probabilities then applied to calibrated probabilities during scoring
+- **Threshold Optimization**: maximize precision at recall >= 0.70, selected on held-out validation predictions from a **sub-train model** (75/25 split of training data), matching the notebook flow
+- **Platt Scaling**: sigmoid calibration (`CalibratedClassifierCV`) wraps the full-train pipeline for well-calibrated probabilities used in scoring output; threshold is found on sub-train held-out predictions then applied to calibrated probabilities during scoring
 - **Artifacts**: `pipeline.pkl`, `metadata.json`, `eval.json` saved to S3
 
 ---
@@ -768,8 +768,8 @@ The gold master contains **56 features** organized into 7 tiers, tested across 9
 | Features | 56 features across 7 tiers (lifecycle, market, risk, behavioral, sentiment, compound, strings) |
 | NLP enrichment | Regex intent classification (8 categories) + HuggingFace sentiment (`cardiffnlp/twitter-roberta-base-sentiment-latest`) |
 | Target | `churned_within_horizon` (binary) |
-| Threshold | Optimized for precision at recall >= 0.70 on raw probabilities (auto-selected ~0.72) |
-| PR-AUC | **0.757** (production pipeline, exceeds 0.70 gate) |
+| Threshold | Optimized for precision at recall >= 0.70 on sub-train held-out validation (auto-selected ~0.68) |
+| PR-AUC | **0.756** (production pipeline, exceeds 0.70 gate) |
 | ROC-AUC | **0.932** |
 | Promotion gate | PR-AUC >= 0.70 |
 | Risk tiers | Low (<40%), Medium (40-60%), High (60-80%), Critical (>80%) |
