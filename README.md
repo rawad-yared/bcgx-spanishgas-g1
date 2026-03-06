@@ -562,6 +562,9 @@ graph TB
 │   ├── BRD.md                       # Business requirements document
 │   ├── DATA_DICTIONARY.md           # Dataset field definitions
 │   └── RECOMMENDATION_POLICY.md     # Retention offer policy details
+├── report/
+│   ├── architecture/                # Architecture diagrams (high-level, data pipeline, ML training, serving, CI/CD)
+│   └── tables/                      # Reference tables for the report (feature tiers, experiment results, risk tiers)
 ├── tests/                           # 19 test files, 165+ tests
 ├── notebooks/                       # Source Jupyter notebooks (01: ETL, 02: modeling)
 ├── Dockerfile.lambda                # Lambda container image
