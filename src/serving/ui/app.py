@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 st.set_page_config(page_title="SpanishGas MLOps", layout="wide", page_icon="\u26fd")
@@ -14,6 +16,26 @@ st.markdown(
     footer {visibility: hidden;}
     header {visibility: hidden;}
     </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+_ASSETS = Path(__file__).parent / "assets"
+
+import base64
+
+def _img_to_b64(path: Path) -> str:
+    return base64.b64encode(path.read_bytes()).decode()
+
+_ie_b64 = _img_to_b64(_ASSETS / "iesst_logo.jpeg")
+_bcg_b64 = _img_to_b64(_ASSETS / "BCG_X.jpg")
+
+st.sidebar.markdown(
+    f"""
+    <div style="display:flex; align-items:center; gap:18px; margin-bottom:12px;">
+        <img src="data:image/jpeg;base64,{_ie_b64}" style="height:80px; width:auto;">
+        <img src="data:image/jpeg;base64,{_bcg_b64}" style="height:80px; width:auto;">
+    </div>
     """,
     unsafe_allow_html=True,
 )

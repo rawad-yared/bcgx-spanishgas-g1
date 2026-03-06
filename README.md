@@ -522,6 +522,7 @@ graph TB
 │   └── serving/ui/
 │       ├── app.py                   # Streamlit main entry, sidebar navigation
 │       ├── data_loader.py           # Cached loading (local / S3 / DynamoDB)
+│       ├── assets/                  # Logo images (IE, BCG X)
 │       └── pages/
 │           ├── overview.py          # Executive KPI dashboard
 │           ├── data_explorer.py     # Browse data across all pipeline layers
@@ -556,6 +557,11 @@ graph TB
 │   ├── ci.yml                       # Lint + test on push/PR
 │   ├── deploy.yml                   # Terraform + Docker + ECS on push to main
 │   └── retrain.yml                  # Weekly/manual Step Functions trigger
+├── docs/
+│   ├── ARCHITECTURE.md              # Technical architecture document
+│   ├── BRD.md                       # Business requirements document
+│   ├── DATA_DICTIONARY.md           # Dataset field definitions
+│   └── RECOMMENDATION_POLICY.md     # Retention offer policy details
 ├── tests/                           # 19 test files, 165+ tests
 ├── notebooks/                       # Source Jupyter notebooks (01: ETL, 02: modeling)
 ├── Dockerfile.lambda                # Lambda container image
@@ -563,6 +569,7 @@ graph TB
 ├── Dockerfile.streamlit             # Streamlit dashboard container image
 ├── Makefile                         # install, lint, test, docker, terraform targets
 ├── pyproject.toml                   # Dependencies, ruff config, pytest config
+├── LICENSE                          # MIT License
 └── .env.example                     # All environment variables template
 ```
 
