@@ -1,0 +1,176 @@
+# Feature tier definitions and experiment ladder
+# Aligned with build_features.py output columns (session 12 — notebook parity)
+#
+# NOTE: avg_monthly_margin and total_margin_2024 are intentionally EXCLUDED
+# from all training tiers — EDA confirmed margin level is not predictive of
+# churn (median 6.96 churners vs 7.01 non-churners). They remain in the
+# gold master for post-prediction prioritisation:
+#   expected_monthly_loss = P(churn) x avg_monthly_margin
+
+feature_tiers:
+  # -- TIER 1A -- Structural & Lifecycle --
+  # Source: build_lifecycle_features() + build_market_core_features()
+  tier_1a_lifecycle:
+    - months_to_renewal
+    - renewal_bucket
+    - is_within_3m_of_renewal
+    - tenure_months
+    - tenure_bucket
+    - is_expired_contract
+    - segment
+    - sales_channel
+    - is_high_competition_province
+    - is_second_residence
+    - is_dual_fuel
+    - portfolio_type
+    - is_digital_channel
+    - is_comparison_channel
+    - is_own_website_channel
+
+  # -- TIER MP_CORE -- Market & Portfolio: Core Structure --
+  # Source: build_market_core_features()
+  tier_mp_core:
+    - avg_monthly_elec_kwh
+    - total_elec_kwh_2024
+    - avg_monthly_gas_m3
+    - total_gas_m3_2024
+    - gas_share_of_revenue
+    - price_update_count
+    - province_avg_elec_cost_2024
+    - province_avg_gas_cost_2024
+
+  # -- TIER MP_RISK -- Market & Portfolio: Stability & Risk --
+  # Source: build_market_risk_features()
+  # Notebook parity: raw std (not CV), relative price trends, margin stability
+  tier_mp_risk:
+    - std_monthly_elec_kwh
+    - std_monthly_gas_m3
+    - active_months_count
+    - std_margin
+    - min_monthly_margin
+    - max_negative_margin
+    - elec_price_trend_12m
+    - gas_price_trend_12m
+    - elec_price_volatility_12m
+    - province_elec_cost_trend
+    - elec_price_vs_province_cost_spread
+    - is_price_increase
+    - rolling_margin_trend
+
+  # -- TIER 2A -- Behavioral Presence & Intent --
+  # Source: build_behavioral_features()
+  # Notebook parity: intent flags, severity ordinal, interaction timing
+  tier_2a_behavioral:
+    - has_interaction
+    - customer_intent
+    - is_cancellation_intent
+    - is_complaint_intent
+    - recent_complaint_flag
+    - intent_severity_score
+    - last_interaction_days_ago
+    - interaction_within_3m_of_renewal
+    - is_interaction_within_30d_of_renewal
+    - complaint_near_renewal
+    - months_since_last_change
+
+  # -- TIER 2B -- Sentiment Signals --
+  # Source: build_sentiment_features()
+  tier_2b_sentiment:
+    - sentiment_label
+    - is_negative_sentiment
+    - complaint_x_negative_sentiment
+
+  # -- TIER 3 -- Compound Context Flags (binary, tree-safe) --
+  # Source: build_compound_features()
+  tier_3_compound:
+    - is_price_sensitive
+    - is_high_risk_lifecycle
+    - is_competition_x_renewal
+    - dual_fuel_x_renewal
+    - dual_fuel_x_competition
+    - dual_fuel_x_intent
+
+  # -- TIER 1B -- Pre-computed interaction strings (linear models only) --
+  # Source: build_compound_features()
+  # Trees learn these splits natively; include only for linear models.
+  tier_1b_interaction_strings:
+    - intent_x_renewal_bucket
+    - intent_x_tenure_bucket
+    - sentiment_x_renewal_bucket
+    - intent_x_sentiment
+    - tenure_x_renewal_bucket
+    - sales_channel_x_renewal_bucket
+    - has_interaction_x_renewal_bucket
+    - competition_x_intent
+
+experiments:
+  E0_baseline:
+    features:
+      - tier_1a_lifecycle
+    description: "Lifecycle features only (15 features)"
+
+  E1_lifecycle_market:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+    description: "Lifecycle + market core (23 features)"
+
+  E2_add_risk:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+    description: "Lifecycle + market core + risk (36 features)"
+
+  E3_add_behavioral:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+    description: "Add behavioral features (47 features)"
+
+  E4_add_sentiment:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+      - tier_2b_sentiment
+    description: "Add sentiment features (50 features)"
+
+  E5_full:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+      - tier_2b_sentiment
+      - tier_3_compound
+    description: "Full feature set for tree models (56 features, champion)"
+
+  E6_with_strings:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+      - tier_2b_sentiment
+      - tier_3_compound
+      - tier_1b_interaction_strings
+    description: "Full + interaction strings for linear models (64 features)"
+
+  E7_market_only:
+    features:
+      - tier_mp_core
+      - tier_mp_risk
+    description: "Market features only -- ablation (21 features)"
+
+  E8_no_sentiment:
+    features:
+      - tier_1a_lifecycle
+      - tier_mp_core
+      - tier_mp_risk
+      - tier_2a_behavioral
+      - tier_3_compound
+    description: "Full minus sentiment -- production fallback (53 features)"

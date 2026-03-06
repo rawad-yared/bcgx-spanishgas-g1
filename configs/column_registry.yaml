@@ -1,0 +1,95 @@
+# Column registry: raw-to-standardised column mappings, expected dtypes, structural fills
+
+raw_datasets:
+  churn_label:
+    file: "churn_label.csv"
+    format: csv
+    columns:
+      customer_id: {dtype: str}
+      label_date: {dtype: date}
+      horizon_days: {dtype: int}
+      churned_within_horizon: {dtype: int}
+      churn_effective_date: {dtype: date, nullable: true}
+
+  customer_attributes:
+    file: "customer_attributes.csv"
+    format: csv
+    columns:
+      customer_id: {dtype: str}
+      province: {dtype: str}
+      customer_type: {dtype: str}
+      tariff_type: {dtype: str}
+      signup_date: {dtype: date}
+      product_bundle: {dtype: str}
+
+  customer_contracts:
+    file: "customer_contracts.csv"
+    format: csv
+    columns:
+      contract_id: {dtype: str}
+      customer_id: {dtype: str}
+      contract_start_date: {dtype: date}
+      contract_end_date: {dtype: date}
+      contract_status: {dtype: str}
+      contract_term_months: {dtype: int}
+      product_type: {dtype: str}
+
+  consumption_hourly_2024:
+    file: "consumption_hourly_2024.csv"
+    format: csv
+    columns:
+      customer_id: {dtype: str}
+      timestamp_utc: {dtype: datetime}
+      commodity: {dtype: str}
+      consumption_kwh: {dtype: float}
+      meter_id: {dtype: str}
+      source_system: {dtype: str}
+
+  price_history:
+    file: "price_history.csv"
+    format: csv
+    columns:
+      price_date: {dtype: date}
+      product_type: {dtype: str}
+      tariff_type: {dtype: str}
+      region_code: {dtype: str}
+      price_eur_per_kwh: {dtype: float}
+      market_benchmark_eur_per_kwh: {dtype: float}
+
+  costs_by_province_month:
+    file: "costs_by_province_month.csv"
+    format: csv
+    columns:
+      cost_month: {dtype: date}
+      province: {dtype: str}
+      commodity: {dtype: str}
+      variable_cost_eur_per_kwh: {dtype: float}
+      fixed_cost_eur_month: {dtype: float}
+      network_cost_eur_per_kwh: {dtype: float}
+
+  customer_interactions:
+    file: "customer_interactions.json"
+    format: json
+    columns:
+      interaction_id: {dtype: str}
+      customer_id: {dtype: str}
+      interaction_ts: {dtype: datetime}
+      channel: {dtype: str}
+      interaction_type: {dtype: str}
+      sentiment_score: {dtype: float}
+      resolution_status: {dtype: str}
+      agent_id: {dtype: str}
+
+# Structural fills for model matrix (null handling before modeling)
+structural_fills:
+  numeric_sentinel:
+    columns:
+      - days_since_last_interaction
+    fill_value: 9999
+  categorical_default:
+    columns:
+      - sentiment_label
+      - lifecycle_string
+      - market_string
+      - behavioral_string
+    fill_value: "no_interaction"

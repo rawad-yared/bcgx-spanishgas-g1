@@ -1,0 +1,197 @@
+# CLAUDE.md - SpanishGas AWS MLOps Pipeline
+
+## Project Overview
+Churn prediction system for 20,099 Spanish energy customers. Converting Jupyter notebook logic (01: medallion ETL, 02: modeling) into a production AWS MLOps pipeline.
+
+## Branch
+`feature/aws-mlops-pipeline` (from `main`)
+
+## Current State (session 14)
+- **PR-AUC = 0.757, ROC-AUC = 0.932** — exceeds 0.70 promotion gate
+- **Platt scaling active** — `CalibratedClassifierCV(sigmoid)` wraps XGBoost pipeline via `FrozenEstimator` (sklearn >=1.6 compat)
+- **XGBoost hyperparams aligned with notebook** — max_depth=3, learning_rate=0.02, colsample_bytree=0.7, eval_metric="logloss"
+- **Risk tier distribution:** Low 18,158 / Medium 673 / High 527 / Critical 741 (was 1,614 before calibration)
+- **165 tests passing** across 19 test files, 0 skipped, 0 failures
+- **Ruff lint clean** — all checks passing
+- **Latest commit:** `6ad77f5` — pushed to `origin/feature/aws-mlops-pipeline`
+- **Docker images rebuilt + pushed** — Processing + Streamlit to ECR
+- **Pipeline SUCCEEDED** — `platt-v2-20260303-152610` completed all 8 steps (~28 min)
+- **ECS Streamlit redeployed** — force new deployment with calibrated scored data
+
+## Key Architecture
+- **S3 layout:** Single bucket, prefix-based (`raw/`, `bronze/`, `silver/`, `gold/`, `models/`, `scored/`)
+- **Orchestration:** Lambda (S3 trigger) -> Step Functions -> SageMaker Processing/Training
+- **Idempotency:** DynamoDB manifest table (PK: file_key)
+- **Model:** XGBoost (E5_full experiment), threshold optimized for precision at recall >= 0.70
+- **Drift:** KS test (scipy), p_threshold=0.01
+- **Promotion gate:** PR-AUC >= 0.70
+- **Dashboard:** Streamlit on ECS Fargate behind ALB, auto-deployed via GitHub Actions
+
+## Module Map
+```
+configs/                   - Settings, feature_tiers.yaml, column_registry.yaml
+src/data/                  - ingest.py (bronze), silver.py, build_training_set.py, nlp.py (intent + sentiment)
+src/features/              - build_features.py (7 feature tiers, gold master)
+src/models/                - churn_model.py, preprocessing.py, scorer.py, artifacts.py, registry.py
+src/reco/                  - schema.py, engine.py
+src/pipelines/             - lambda_handler.py, manifest.py, s3_io.py, run.py
+src/pipelines/steps/       - bronze, silver, gold, train, evaluate, score, drift steps
+src/monitoring/            - drift.py, data_quality.py, alerts.py, reference_store.py
+src/serving/ui/            - app.py, data_loader.py, pages/{overview, data_explorer, model_performance, drift_monitor, customer_risk, customer_lookup, recommendations, pipeline_status}
+infra/terraform/           - main.tf, backend.tf, variables.tf, outputs.tf + 11 modules
+.github/workflows/         - ci.yml, deploy.yml, retrain.yml
+Dockerfile.lambda          - Lambda container image
+Dockerfile.processing      - SageMaker Processing container image
+Dockerfile.streamlit       - Streamlit dashboard container image
+```
+
+## Terraform Modules (11)
+```
+infra/terraform/modules/
+  s3/              - Single bucket, versioning, encryption, lifecycle rules
+  dynamodb/        - Manifest table, PAY_PER_REQUEST
+  iam/             - Lambda, SFN, SageMaker, ECS execution + task roles
+  lambda/          - Pipeline trigger function, S3 notification
+  step_functions/  - State machine + ASL definition (asl/pipeline.asl.json)
+  sagemaker/       - Model Package Group
+  monitoring/      - SNS topic, CloudWatch alarms (Lambda errors, SFN failures, drift)
+  ecr/             - Lambda + Processing + Streamlit container repos
+  networking/      - Default VPC, ALB + ECS security groups
+  ecs/             - Fargate cluster, task def, service, ALB, target group, CW logs
+  github_oidc/     - OIDC identity provider + scoped deploy role for GitHub Actions
+```
+
+## Commands
+```bash
+make install              # pip install -e ".[dev]"
+make lint                 # ruff check src/ tests/
+make test                 # pytest tests/ -v
+make test-cov             # pytest --cov
+make streamlit            # streamlit run (local)
+make docker-build-streamlit  # build Streamlit container
+make docker-run-streamlit    # run Streamlit container locally
+```
+
+## Test Files (19 files, 165 tests)
+```
+tests/test_settings.py             - 5 tests (configs)
+tests/test_ingest.py               - 6 tests (bronze)
+tests/test_silver.py               - 8 tests (silver transforms)
+tests/test_build_features.py       - 16 tests (gold features)
+tests/test_build_training_set.py   - 5 tests (model matrix)
+tests/test_models.py               - 9 tests (preprocessing, model defs, hyperparams, calibration, scoring)
+tests/test_reco.py                 - 7 tests (recommendations)
+tests/test_nlp.py                  - 20 tests (intent classification + sentiment enrichment)
+tests/test_lambda_handler.py       - 3 tests (moto: DynamoDB + SFN mocks)
+tests/test_manifest.py             - 5 tests (moto: DynamoDB mocks)
+tests/test_s3_io.py                - 5 tests (moto: S3 parquet/json/csv round-trips)
+tests/test_artifacts.py            - 2 tests (moto: save/load sklearn pipeline to S3)
+tests/test_drift.py                - 10 tests (KS drift detection)
+tests/test_data_quality.py         - 7 tests (null rates, duplicates, schema)
+tests/test_alerts.py               - 5 tests (moto: SNS + CloudWatch)
+tests/test_streamlit_data_loader.py - 10 tests (local file loading + recommendations)
+tests/test_streamlit_pages.py      - 12 tests (page render mocks for 6 pages)
+tests/test_pipeline_e2e.py         - 22 tests (bronze, silver, gold, score, full pipeline E2E)
+tests/test_imports.py              - 1 test (package import smoke test)
+```
+
+## AWS Deployment Info
+- **Account:** 559307249592 | **Region:** eu-west-1 | **IAM User:** powerco-mlflow-local
+- **TF State:** S3 `spanishgas-terraform-state` + DynamoDB `spanishgas-terraform-locks`
+- **Data bucket:** `spanishgas-data-dev` | **ECR:** `spanishgas-dev-lambda`, `spanishgas-dev-processing`, `spanishgas-dev-streamlit`
+- **Lambda:** `spanishgas-dev-pipeline-trigger` | **SFN:** `spanishgas-dev-pipeline`
+- **ECS:** `spanishgas-dev-cluster` / `spanishgas-dev-streamlit` service | **ALB:** `spanishgas-dev-streamlit-alb`
+- **OIDC:** `spanishgas-dev-github-deploy-role` (set as `AWS_DEPLOY_ROLE_ARN` GitHub secret)
+- **Alert email:** `rawad.yared@student.ie.edu`
+- **Docker build note:** Must use `--platform linux/amd64 --provenance=false` for all images (Apple Silicon builds arm64 by default; Lambda/SageMaker need x86_64)
+
+## Known Issues
+- None — PR-AUC = 0.757 confirmed, all pipeline steps passing, Streamlit deployed with calibrated scores
+
+## Session 14 Changes Applied (committed as `6ad77f5` + pushed)
+1. **XGBoost hyperparameters aligned with new notebook** — `max_depth` 5→3, `learning_rate` 0.05→0.02, `colsample_bytree` 0.8→0.7, `eval_metric` "aucpr"→"logloss" in `src/models/churn_model.py`
+2. **Platt scaling (sigmoid calibration) added** — `CalibratedClassifierCV(FrozenEstimator(pipeline), method="sigmoid")` wraps the full-training pipeline using the existing validation split. Uses `FrozenEstimator` for sklearn >=1.6 compat, falls back to `cv="prefit"` for older versions. Returns calibrated pipeline from `run_experiment()`.
+3. **Tests updated** — New `test_xgboost_hyperparameters` verifies all 6 XGBoost params. New `TestRunExperiment.test_returns_calibrated_pipeline` verifies CalibratedClassifierCV wrapping. Total: 165 tests, 0 failures.
+4. **Downstream compatibility** — `scorer.py`, `score_step.py`, `train_step.py`, `artifacts.py` all work transparently (same `predict_proba()` interface, joblib handles CalibratedClassifierCV).
+5. **sklearn compat fix** — First pipeline run failed because Docker image has sklearn >=1.6 where `cv="prefit"` was removed. Fixed with `FrozenEstimator` try/except import pattern.
+6. **Docker images rebuilt + pushed** — Processing + Streamlit to ECR (linux/amd64).
+7. **Pipeline result: PR-AUC = 0.757, ROC-AUC = 0.932** — `platt-v2-20260303-152610` completed all 8 steps (~28 min). Threshold = 0.691. Risk tiers: Low 18,158 / Medium 673 / High 527 / Critical 741.
+8. **ECS Streamlit redeployed** — Force new deployment with calibrated scored data. Rollout completed.
+9. **README updated** — Model details (hyperparams, Platt scaling, PR-AUC 0.757, ROC-AUC 0.932), ML architecture diagram (Platt scaling node), test counts (165+).
+
+## Session 13 Fixes Applied (3 commits: `ad91647`, `0c8b66a`, `27b85e3`)
+1. **NLP enrichment module created** — `src/data/nlp.py`: regex intent classification (8 categories, priority order) + HuggingFace sentiment analysis (`cardiffnlp/twitter-roberta-base-sentiment-latest`). Guarded `transformers` import for environments without it.
+2. **Bronze step integration** — `bronze_step.py` calls `enrich_interactions()` after loading interactions JSON, before `build_bronze_customer()`. 2-line change.
+3. **Dockerfile.processing updated** — Added `transformers` to pip install, CPU-only PyTorch (`--index-url https://download.pytorch.org/whl/cpu`), pre-downloads sentiment model at build time.
+4. **20 NLP tests added** — `tests/test_nlp.py`: 13 intent classification tests, 5 enrichment tests, 1 sentiment fallback test, 1 orchestrator test.
+5. **Pandas 3.0 ArrowStringArray fix** — Sentiment column initialization uses `pd.Series([None]*len, dtype="object")` and `.values` assignment to avoid Arrow type conflicts.
+6. **Categorical dtype fix** — Removed `.astype("category")` from `customer_intent` to prevent downstream `fillna("no_interaction")` failure in `build_training_set.py`.
+7. **Pipeline result: PR-AUC = 0.751** — `nlp-v3-20260224-200923` completed all 8 steps. All 56 features active, 0 missing.
+8. **Docker images rebuilt + pushed** — Processing (~2GB larger with torch+transformers+model) + Streamlit to ECR.
+9. **ECS Streamlit redeployed** — Force new deployment with fresh scored data.
+
+## Session 12 Fixes Applied (committed as `7480e18` + pushed)
+1. **`build_market_risk_features()` rewritten** — replaced CV with raw std (`std_monthly_elec_kwh`, `std_monthly_gas_m3`), added `active_months_count`, `std_margin`, `min_monthly_margin`, `max_negative_margin`, relative price trends (`elec_price_trend_12m`, `gas_price_trend_12m`), `elec_price_volatility_12m`, `province_elec_cost_trend`, `elec_price_vs_province_cost_spread`, `is_price_increase`, `rolling_margin_trend`. (7 → 13 features)
+2. **`build_behavioral_features()` expanded** — removed text-search `intent_to_cancel`/`has_complaint`, added `is_cancellation_intent`, `is_complaint_intent`, `recent_complaint_flag`, `intent_severity_score`, `interaction_within_3m_of_renewal`, `is_interaction_within_30d_of_renewal`, `complaint_near_renewal`, `months_since_last_change`. (4 → 11 features)
+3. **`build_sentiment_features()` fixed** — renamed `has_negative_sentiment` → `is_negative_sentiment`, removed `avg_sentiment_score`
+4. **`build_compound_features()` expanded** — removed `renewal_x_complaint`/`high_risk_x_negative_sentiment`, added `is_high_risk_lifecycle`, `is_competition_x_renewal`, `dual_fuel_x_renewal`, `dual_fuel_x_competition`, `dual_fuel_x_intent`, `complaint_x_negative_sentiment`. (3 → 7 features)
+5. **`renewal_bucket` bins changed** — 6 bins → 5 bins to match notebook: `["expired","0-3m","3-6m","6-12m","12m+"]`
+6. **XGBoost hyperparameters aligned** — n_estimators=600, lr=0.05, max_depth=5, subsample=0.8, colsample_bytree=0.8
+7. **`feature_tiers.yaml` rewritten** — E5_full champion: ~56 features (was 41)
+8. **`build_training_set.py` updated** — expanded structural fills for new feature names
+9. **`test_aws_defaults` fixed** — accepts both `.env` and code-default bucket/table names
+10. **Tests: 142 passed, 1 skipped, 0 failures** (was 129 pass + 1 failure)
+11. **Docker images rebuilt + pushed** — Processing + Streamlit to ECR
+12. **Pipeline re-triggered** — `feature-parity-20260224-175111` (first attempt failed due to missing `run_id` in input)
+
+## Session 11 Fixes Applied (committed + pushed)
+1. **Drift step JSON serialization fix** — `s3_io.py` now has `_json_default()` handler for `numpy.bool_`, `numpy.integer`, `numpy.floating`, `numpy.ndarray`. `write_json()` passes `default=_json_default` to `json.dumps()`. Previously crashed with `TypeError: Object of type bool is not JSON serializable`.
+2. **Customer Lookup "Why This Recommendation" fix** — `customer_lookup.py` line 126: `reason_codes` from parquet comes back as numpy array. `if numpy_array:` raises `ValueError: truth value of array is ambiguous`. Fixed by converting with `.tolist()` before truthiness check.
+3. **Ruff I001 import order fixes** — `s3_io.py`: `boto3` moved before `numpy` (alphabetical). `drift_step.py`: removed blank line between `pandas` and `botocore` (same import group).
+4. **README Mermaid diagrams** — all 7 ASCII box-and-dash diagrams replaced with Mermaid. Added feature tiers diagram. Updated to 8 dashboard pages, 129+ tests, E5_full/E8_no_sentiment experiments, `--platform linux/amd64` in Docker docs.
+5. **Docker images rebuilt + pushed** — Processing (drift fix) and Streamlit (customer lookup fix) images rebuilt for linux/amd64, pushed to ECR, ECS redeployment triggered.
+6. **Pipeline re-triggered and SUCCEEDED** — `driftfix-20260224-141631` execution completed all 8 steps (~23 min). Drift step now runs clean.
+
+## Session 10 Fixes Applied (committed in session 11)
+1. **feature_tiers.yaml complete rewrite** — all tier feature names now match actual `build_features.py` output columns. E5_full: 41 features (was ~10-15 matching).
+2. **eval.json now saves actual features** — `train_step.py` saves `X.columns.tolist()` as `"features"`, plus `"requested_features"` and `"missing_features"` for debugging.
+3. **Recommendations pipeline integrated** — `score_step.py` now calls `generate_recommendations()` from `src/reco/engine.py` and writes `scored/recommendations.parquet` to S3.
+4. **3 missing compound features added** — `build_compound_features()` in `build_features.py` now creates `sales_channel_x_renewal_bucket`, `has_interaction_x_renewal_bucket`, `competition_x_intent`.
+5. **6 new Streamlit tests** — Total: 129 tests (127 pass, 1 pre-existing failure, 1 skipped).
+6. **Added E8_no_sentiment experiment** — ablation experiment without sentiment features.
+
+## Session 10 Column Audit Notes
+- `customer_intent`, `sentiment_label`, `sentiment_neg/pos/neu`, `interaction_summary`, `date` — these columns exist in the **real S3 data** because the notebook (01_data_layers_and_gold.ipynb) pre-computes them via HuggingFace NLP sentiment analysis and regex intent classification on `interaction_summary` text. They flow through `build_bronze_customer()` → silver → gold correctly.
+- `column_registry.yaml` only describes raw file schemas, not the enriched columns — this is expected.
+- `build_features.py` uses `if col in df.columns` guards throughout — correct defensive coding for environments where NLP hasn't been run.
+
+## PR-AUC Gap: Root Cause Analysis (session 11)
+Production pipeline PR-AUC = ~0.4, notebook = ~0.7. Root cause is **feature parity** — the production `build_features.py` creates 41 features, but the notebook uses ~56 features.
+
+### Fix Steps to Close the PR-AUC Gap
+1. **`src/features/build_features.py`** — Add ~15 missing feature computations to match the notebook:
+   - **MP Risk features (~9):** `std_monthly_elec_kwh`, `std_monthly_gas_m3`, `std_margin`, `min_monthly_margin`, `max_negative_margin`, `elec_price_volatility_12m`, `is_price_increase`, `rolling_margin_trend`, `province_elec_cost_trend`
+   - **Behavioral features (~6):** `interaction_within_3m_of_renewal`, `complaint_near_renewal`, `is_interaction_within_30d`, `recent_complaint_flag`, `is_complaint_intent`, `intent_severity_score`
+   - **Compound features (~3):** `dual_fuel_x_renewal`, `dual_fuel_x_competition`, `complaint_x_negative_sentiment`
+2. **`configs/feature_tiers.yaml`** — Add the new feature names to the corresponding tier lists so `train_step.py` selects them for training
+3. **`src/models/churn_model.py`** (optional) — Align threshold selection with notebook approach (notebook uses full training set for threshold optimization, pipeline uses smaller validation subset)
+
+### Secondary Issue: Threshold Selection
+The notebook picks the decision threshold on the **full training set** (~16K customers), while production picks it on a **validation subset** (~4K), leading to a different operating point.
+
+## SageMaker Quotas (updated session 8)
+- `ml.m5.large for training job usage`: 15 instances available
+- `ml.m5.large for processing job usage`: 4 instances available
+- `ml.m5.xlarge for processing job usage`: 1 instance available
+- `ml.m5.xlarge for training job usage`: still pending (no longer needed — switched to ml.m5.large)
+
+## IAM User Policy
+- `powerco-mlflow-local` now has **AdministratorAccess** only (10 granular policies replaced in session 7 to fit the 10-policy limit and add EC2/ECS/ELB permissions)
+
+## Streamlit Dashboard
+- **ALB DNS:** `spanishgas-dev-streamlit-alb-1221532574.eu-west-1.elb.amazonaws.com`
+- ECS Fargate service: `spanishgas-dev-streamlit` in `spanishgas-dev-cluster`
+- **8 pages:** Overview, Data Explorer, Model Performance, Drift Monitor, Customer Risk, Customer Lookup, Recommendations, Pipeline Status
+
+## Full Context
+See `CONTEXT.MD` for complete dump with all files changed, decisions, blockers, and ordered next steps.

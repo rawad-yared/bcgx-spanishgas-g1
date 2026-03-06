@@ -1,0 +1,80 @@
+name: Retrain
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Pipeline mode (train or score)"
+        required: true
+        default: "train"
+        type: choice
+        options:
+          - train
+          - score
+  schedule:
+    - cron: "0 6 * * 1"  # Every Monday at 06:00 UTC
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-1
+  PROJECT_NAME: spanishgas
+
+jobs:
+  trigger-pipeline:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get Step Functions ARN
+        id: get-sfn
+        run: |
+          SFN_ARN=$(aws stepfunctions list-state-machines \
+            --query "stateMachines[?name=='${{ env.PROJECT_NAME }}-pipeline'].stateMachineArn | [0]" \
+            --output text)
+          echo "sfn_arn=$SFN_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Start pipeline execution
+        id: start-execution
+        run: |
+          MODE=${{ github.event.inputs.mode || 'train' }}
+          RUN_ID="retrain-$(date +%Y%m%d-%H%M%S)"
+          EXEC_ARN=$(aws stepfunctions start-execution \
+            --state-machine-arn ${{ steps.get-sfn.outputs.sfn_arn }} \
+            --name "$RUN_ID" \
+            --input "{\"mode\": \"$MODE\", \"run_id\": \"$RUN_ID\", \"bucket\": \"${{ env.PROJECT_NAME }}-data-g1\"}" \
+            --query "executionArn" --output text)
+          echo "execution_arn=$EXEC_ARN" >> "$GITHUB_OUTPUT"
+          echo "Started execution: $EXEC_ARN"
+
+      - name: Wait for completion
+        run: |
+          echo "Monitoring execution: ${{ steps.start-execution.outputs.execution_arn }}"
+          for i in $(seq 1 60); do
+            STATUS=$(aws stepfunctions describe-execution \
+              --execution-arn ${{ steps.start-execution.outputs.execution_arn }} \
+              --query "status" --output text)
+            echo "Attempt $i: status=$STATUS"
+            if [ "$STATUS" = "SUCCEEDED" ]; then
+              echo "Pipeline completed successfully."
+              exit 0
+            elif [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "TIMED_OUT" ] || [ "$STATUS" = "ABORTED" ]; then
+              echo "Pipeline failed with status: $STATUS"
+              aws stepfunctions describe-execution \
+                --execution-arn ${{ steps.start-execution.outputs.execution_arn }}
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "Timed out waiting for pipeline (60 minutes)"
+          exit 1

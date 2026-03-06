@@ -1,0 +1,9 @@
+FROM public.ecr.aws/lambda/python:3.12
+
+COPY src/ ${LAMBDA_TASK_ROOT}/src/
+COPY configs/ ${LAMBDA_TASK_ROOT}/configs/
+COPY pyproject.toml ${LAMBDA_TASK_ROOT}/
+
+RUN pip install --no-cache-dir boto3 python-dotenv pyyaml
+
+CMD ["src.pipelines.lambda_handler.handler"]
