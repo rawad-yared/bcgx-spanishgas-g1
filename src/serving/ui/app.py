@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 import streamlit as st
@@ -21,8 +22,6 @@ st.markdown(
 )
 
 _ASSETS = Path(__file__).parent / "assets"
-
-import base64
 
 def _img_to_b64(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode()
