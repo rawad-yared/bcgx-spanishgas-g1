@@ -569,7 +569,6 @@ graph TB
 ├── Dockerfile.streamlit             # Streamlit dashboard container image
 ├── Makefile                         # install, lint, test, docker, terraform targets
 ├── pyproject.toml                   # Dependencies, ruff config, pytest config
-├── LICENSE                          # MIT License
 └── .env.example                     # All environment variables template
 ```
 
