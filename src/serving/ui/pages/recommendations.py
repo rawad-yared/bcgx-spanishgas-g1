@@ -5,7 +5,8 @@ from __future__ import annotations
 import plotly.express as px
 import streamlit as st
 
-from src.serving.ui.data_loader import load_recommendations
+from src.serving.ui.data_loader import load_recommendations, load_scored_data
+from src.serving.ui.pages._offer_policy import OFFER_COST_PCT, render_offer_policy_table
 
 
 def render() -> None:
@@ -18,6 +19,11 @@ def render() -> None:
             "Run the scoring pipeline and generate recommendations first."
         )
         return
+
+    # ------------------------------------------------------------------
+    # Offer Policy Reference
+    # ------------------------------------------------------------------
+    render_offer_policy_table()
 
     # ------------------------------------------------------------------
     # Summary metrics
@@ -86,6 +92,21 @@ def render() -> None:
             filtered = filtered[filtered[risk_col] == tier_filter]
 
     # ------------------------------------------------------------------
+    # Compute per-customer offer budget
+    # ------------------------------------------------------------------
+    scored = load_scored_data()
+    if not scored.empty and "avg_monthly_margin" in scored.columns and "customer_id" in filtered.columns:
+        margin_map = scored.set_index("customer_id")["avg_monthly_margin"]
+        filtered = filtered.copy()
+        filtered["avg_monthly_margin"] = filtered["customer_id"].map(margin_map).fillna(0)
+        action_col_name = "action" if "action" in filtered.columns else None
+        if action_col_name:
+            filtered["offer_pct"] = filtered[action_col_name].map(OFFER_COST_PCT).fillna(0)
+            filtered["offer_budget"] = (
+                filtered["offer_pct"] * filtered["avg_monthly_margin"].clip(lower=0)
+            ).round(2)
+
+    # ------------------------------------------------------------------
     # Filterable table
     # ------------------------------------------------------------------
     display_columns = [
@@ -97,6 +118,7 @@ def render() -> None:
             "segment",
             "action",
             "timing_window",
+            "offer_budget",
             "expected_margin_impact",
             "reason_codes",
         ]

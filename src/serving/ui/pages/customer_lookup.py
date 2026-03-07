@@ -5,22 +5,11 @@ from __future__ import annotations
 import streamlit as st
 
 from src.serving.ui.data_loader import load_recommendations, load_scored_data
-
-# Human-readable action labels
-_ACTION_LABELS: dict[str, str] = {
-    "offer_large": "Large Retention Offer",
-    "offer_medium": "Medium Retention Offer",
-    "offer_small": "Small Retention Offer",
-    "no_offer": "No Action Needed",
-}
-
-# Offer cost as fraction of monthly margin
-_OFFER_COST_PCT: dict[str, float] = {
-    "offer_large": 0.25,
-    "offer_medium": 0.15,
-    "offer_small": 0.05,
-    "no_offer": 0.0,
-}
+from src.serving.ui.pages._offer_policy import (
+    ACTION_LABELS,
+    OFFER_COST_PCT,
+    render_offer_policy_table,
+)
 
 
 def _risk_color(proba: float) -> str:
@@ -84,12 +73,17 @@ def render() -> None:
     c2.metric("Risk Tier", risk_tier)
 
     action = reco_row.get("action", "N/A") if reco_row is not None else "N/A"
-    c3.metric("Recommended Action", _ACTION_LABELS.get(action, action))
+    c3.metric("Recommended Action", ACTION_LABELS.get(action, action))
 
     timing = reco_row.get("timing_window", "N/A") if reco_row is not None else "N/A"
     c4.metric("Timing Window", timing.replace("_", " ").title() if timing != "N/A" else "N/A")
 
     st.divider()
+
+    # ------------------------------------------------------------------
+    # Offer Policy Reference
+    # ------------------------------------------------------------------
+    render_offer_policy_table()
 
     # ------------------------------------------------------------------
     # Section 2: Financial Impact
@@ -98,7 +92,7 @@ def render() -> None:
     margin = row.get("avg_monthly_margin", 0.0)
     expected_monthly_loss = churn_proba * margin
     expected_annual_loss = expected_monthly_loss * 12
-    offer_cost_pct = _OFFER_COST_PCT.get(action, 0.0)
+    offer_cost_pct = OFFER_COST_PCT.get(action, 0.0)
     offer_cost = offer_cost_pct * margin
     net_saved = expected_monthly_loss - offer_cost
     roi = (net_saved / offer_cost * 100) if offer_cost > 0 else float("inf")
