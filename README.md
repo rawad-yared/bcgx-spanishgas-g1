@@ -68,6 +68,10 @@ The system consumes **7 raw datasets** that describe customers, their contracts,
 
 ## High-Level Architecture
 
+![SpanishGas MLOps Architecture](report/architecture/SpanishGas_MLOps_Architecture_v2.png)
+
+### High-Level Flow (Mermaid)
+
 ```mermaid
 graph TB
     subgraph Ingestion

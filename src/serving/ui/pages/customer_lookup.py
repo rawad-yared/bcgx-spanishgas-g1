@@ -110,8 +110,9 @@ def render() -> None:
         st.metric("Expected Annual Loss", f"\u20ac{expected_annual_loss:,.2f}")
     with right:
         st.markdown("**With Recommended Action**")
-        st.metric("Monthly Offer Cost", f"\u20ac{offer_cost:,.2f}")
-        st.metric("Net Monthly Profit Saved", f"\u20ac{net_saved:,.2f}")
+        pct_label = f"{offer_cost_pct:.0%} of margin" if offer_cost_pct > 0 else "N/A"
+        st.metric("Max Offer Budget", f"€{offer_cost:,.2f} ({pct_label})")
+        st.metric("Net Monthly Profit Saved", f"€{net_saved:,.2f}")
         roi_str = f"{roi:,.0f}%" if roi != float("inf") else "N/A (no cost)"
         st.metric("ROI of Intervention", roi_str)
 
