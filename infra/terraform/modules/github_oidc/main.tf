@@ -227,14 +227,8 @@ resource "aws_iam_role_policy" "github_deploy" {
       {
         Effect = "Allow"
         Action = [
-          "elasticloadbalancing:CreateLoadBalancer", "elasticloadbalancing:DescribeLoadBalancers",
-          "elasticloadbalancing:DescribeLoadBalancerAttributes",
-          "elasticloadbalancing:ModifyLoadBalancerAttributes",
-          "elasticloadbalancing:CreateTargetGroup", "elasticloadbalancing:DescribeTargetGroups",
-          "elasticloadbalancing:DescribeTargetGroupAttributes",
-          "elasticloadbalancing:ModifyTargetGroupAttributes",
-          "elasticloadbalancing:CreateListener", "elasticloadbalancing:DescribeListeners",
-          "elasticloadbalancing:AddTags", "elasticloadbalancing:DescribeTags",
+          "elasticloadbalancing:Create*", "elasticloadbalancing:Describe*",
+          "elasticloadbalancing:Modify*", "elasticloadbalancing:AddTags",
         ]
         Resource = "*"
       },
