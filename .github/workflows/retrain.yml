@@ -53,7 +53,7 @@ jobs:
           EXEC_ARN=$(aws stepfunctions start-execution \
             --state-machine-arn ${{ steps.get-sfn.outputs.sfn_arn }} \
             --name "$RUN_ID" \
-            --input "{\"mode\": \"$MODE\", \"run_id\": \"$RUN_ID\", \"bucket\": \"${{ env.PROJECT_NAME }}-data-${{ env.ENVIRONMENT }}\"}" \
+            --input "{\"mode\": \"$MODE\", \"run_id\": \"$RUN_ID\", \"bucket\": \"${{ env.PROJECT_NAME }}-data-${{ env.ENVIRONMENT }}\", \"file_key\": \"retrain/$RUN_ID\"}" \
             --query "executionArn" --output text)
           echo "execution_arn=$EXEC_ARN" >> "$GITHUB_OUTPUT"
           echo "Started execution: $EXEC_ARN"
