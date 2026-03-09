@@ -173,7 +173,8 @@ resource "aws_iam_role_policy" "github_deploy" {
         Effect = "Allow"
         Action = [
           "sns:CreateTopic", "sns:GetTopicAttributes", "sns:SetTopicAttributes",
-          "sns:Subscribe", "sns:TagResource", "sns:ListTagsForResource",
+          "sns:Subscribe", "sns:GetSubscriptionAttributes",
+          "sns:TagResource", "sns:ListTagsForResource",
         ]
         Resource = "*"
       },
