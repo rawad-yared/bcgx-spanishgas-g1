@@ -410,11 +410,10 @@ graph TD
 
     subgraph Deploy["Deploy Workflow"]
         OIDC["AWS OIDC Login"]
-        TF_PLAN["Terraform<br>Init / Plan / Apply"]
-        DOCKER["Docker Build + Push"]
+        DOCKER["Docker Build + Push<br>(Lambda, Processing, Streamlit)"]
         UPDATE_LAMBDA["Update Lambda Code"]
         ECS_DEPLOY["Force ECS Redeploy"]
-        OIDC --> TF_PLAN --> DOCKER --> UPDATE_LAMBDA --> ECS_DEPLOY
+        OIDC --> DOCKER --> UPDATE_LAMBDA --> ECS_DEPLOY
     end
 
     subgraph Retrain["Retrain Workflow"]
@@ -559,7 +558,7 @@ graph TB
 │       └── github_oidc/             # OIDC provider + deploy role
 ├── .github/workflows/
 │   ├── ci.yml                       # Lint + test on push/PR
-│   ├── deploy.yml                   # Terraform + Docker + ECS on push to main
+│   ├── deploy.yml                   # Docker build + push + ECS/Lambda update on push to main
 │   └── retrain.yml                  # Weekly/manual Step Functions trigger
 ├── docs/
 │   ├── ARCHITECTURE.md              # Technical architecture document
@@ -749,7 +748,7 @@ To enable automated deployments:
 1. Run `terraform output github_deploy_role_arn` to get the OIDC deploy role ARN
 2. Go to your GitHub repo **Settings > Secrets and Variables > Actions**
 3. Add secret: `AWS_DEPLOY_ROLE_ARN` = the role ARN from step 1
-4. Pushes to `main` will now auto-deploy (Terraform + Docker + ECS)
+4. Pushes to `main` will now auto-deploy (Docker build + push + ECS/Lambda update). Infrastructure is managed separately via local `terraform apply`.
 
 ---
 
