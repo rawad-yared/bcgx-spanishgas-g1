@@ -129,6 +129,10 @@ resource "aws_iam_role_policy" "github_deploy" {
           "s3:PutEncryptionConfiguration", "s3:PutLifecycleConfiguration",
           "s3:PutBucketTagging", "s3:PutBucketNotification",
           "s3:GetBucketNotification",
+          "s3:GetBucketPublicAccessBlock", "s3:PutBucketPublicAccessBlock",
+          "s3:GetAccelerateConfiguration", "s3:GetBucketRequestPayment",
+          "s3:GetBucketObjectLockConfiguration", "s3:GetBucketCORS",
+          "s3:GetBucketWebsite", "s3:GetReplicationConfiguration",
         ]
         Resource = [var.s3_bucket_arn, "${var.s3_bucket_arn}/*"]
       },
@@ -157,7 +161,7 @@ resource "aws_iam_role_policy" "github_deploy" {
         Action = [
           "states:CreateStateMachine", "states:DescribeStateMachine",
           "states:UpdateStateMachine", "states:TagResource",
-          "states:ListTagsForResource",
+          "states:ListTagsForResource", "states:ListStateMachineVersions",
         ]
         Resource = "*"
       },
@@ -199,12 +203,13 @@ resource "aws_iam_role_policy" "github_deploy" {
       {
         Effect = "Allow"
         Action = [
-          "ec2:DescribeVpcs", "ec2:DescribeSubnets",
-          "ec2:DescribeSecurityGroups", "ec2:CreateSecurityGroup",
+          "ec2:DescribeVpcs", "ec2:DescribeVpcAttribute", "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules",
+          "ec2:CreateSecurityGroup",
           "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress",
           "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress",
           "ec2:CreateTags", "ec2:DescribeNetworkInterfaces",
-          "ec2:DescribeAccountAttributes",
+          "ec2:DescribeAccountAttributes", "ec2:DescribeAvailabilityZones",
         ]
         Resource = "*"
       },
