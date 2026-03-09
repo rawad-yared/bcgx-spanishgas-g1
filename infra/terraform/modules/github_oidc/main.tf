@@ -151,7 +151,7 @@ resource "aws_iam_role_policy" "github_deploy" {
         Action = [
           "lambda:CreateFunction", "lambda:GetFunction",
           "lambda:UpdateFunctionConfiguration", "lambda:AddPermission",
-          "lambda:GetPolicy", "lambda:TagResource",
+          "lambda:RemovePermission", "lambda:GetPolicy", "lambda:TagResource",
           "lambda:ListVersionsByFunction", "lambda:GetFunctionCodeSigningConfig",
         ]
         Resource = var.lambda_function_arn
