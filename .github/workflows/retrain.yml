@@ -21,6 +21,7 @@ permissions:
 env:
   AWS_REGION: eu-west-1
   PROJECT_NAME: spanishgas
+  ENVIRONMENT: dev
 
 jobs:
   trigger-pipeline:
@@ -40,7 +41,7 @@ jobs:
         id: get-sfn
         run: |
           SFN_ARN=$(aws stepfunctions list-state-machines \
-            --query "stateMachines[?name=='${{ env.PROJECT_NAME }}-pipeline'].stateMachineArn | [0]" \
+            --query "stateMachines[?name=='${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-pipeline'].stateMachineArn | [0]" \
             --output text)
           echo "sfn_arn=$SFN_ARN" >> "$GITHUB_OUTPUT"
 
@@ -52,7 +53,7 @@ jobs:
           EXEC_ARN=$(aws stepfunctions start-execution \
             --state-machine-arn ${{ steps.get-sfn.outputs.sfn_arn }} \
             --name "$RUN_ID" \
-            --input "{\"mode\": \"$MODE\", \"run_id\": \"$RUN_ID\", \"bucket\": \"${{ env.PROJECT_NAME }}-data-g1\"}" \
+            --input "{\"mode\": \"$MODE\", \"run_id\": \"$RUN_ID\", \"bucket\": \"${{ env.PROJECT_NAME }}-data-${{ env.ENVIRONMENT }}\"}" \
             --query "executionArn" --output text)
           echo "execution_arn=$EXEC_ARN" >> "$GITHUB_OUTPUT"
           echo "Started execution: $EXEC_ARN"

@@ -12,6 +12,7 @@ permissions:
 env:
   AWS_REGION: eu-west-1
   PROJECT_NAME: spanishgas
+  ENVIRONMENT: dev
 
 jobs:
   ci:
@@ -42,7 +43,7 @@ jobs:
 
       - name: Terraform Plan
         working-directory: infra/terraform
-        run: terraform plan -var-file=environments/prod.tfvars -out=tfplan
+        run: terraform plan -var-file=environments/dev.tfvars -out=tfplan
 
       - name: Terraform Apply
         working-directory: infra/terraform
@@ -69,39 +70,39 @@ jobs:
       - name: Build and push Lambda image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPO_LAMBDA: ${{ env.PROJECT_NAME }}-lambda
+          ECR_REPO_LAMBDA: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-lambda
         run: |
-          docker build -f Dockerfile.lambda -t $ECR_REGISTRY/$ECR_REPO_LAMBDA:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_LAMBDA:latest .
+          docker build --platform linux/amd64 --provenance=false -f Dockerfile.lambda -t $ECR_REGISTRY/$ECR_REPO_LAMBDA:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_LAMBDA:latest .
           docker push $ECR_REGISTRY/$ECR_REPO_LAMBDA --all-tags
 
       - name: Build and push Processing image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPO_PROCESSING: ${{ env.PROJECT_NAME }}-processing
+          ECR_REPO_PROCESSING: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-processing
         run: |
-          docker build -f Dockerfile.processing -t $ECR_REGISTRY/$ECR_REPO_PROCESSING:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_PROCESSING:latest .
+          docker build --platform linux/amd64 --provenance=false -f Dockerfile.processing -t $ECR_REGISTRY/$ECR_REPO_PROCESSING:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_PROCESSING:latest .
           docker push $ECR_REGISTRY/$ECR_REPO_PROCESSING --all-tags
 
       - name: Build and push Streamlit image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPO_STREAMLIT: ${{ env.PROJECT_NAME }}-streamlit
+          ECR_REPO_STREAMLIT: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-streamlit
         run: |
-          docker build --provenance=false -f Dockerfile.streamlit -t $ECR_REGISTRY/$ECR_REPO_STREAMLIT:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_STREAMLIT:latest .
+          docker build --platform linux/amd64 --provenance=false -f Dockerfile.streamlit -t $ECR_REGISTRY/$ECR_REPO_STREAMLIT:${{ github.sha }} -t $ECR_REGISTRY/$ECR_REPO_STREAMLIT:latest .
           docker push $ECR_REGISTRY/$ECR_REPO_STREAMLIT --all-tags
 
       - name: Update Lambda function
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPO_LAMBDA: ${{ env.PROJECT_NAME }}-lambda
+          ECR_REPO_LAMBDA: ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-lambda
         run: |
           aws lambda update-function-code \
-            --function-name ${{ env.PROJECT_NAME }}-pipeline-trigger \
+            --function-name ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-pipeline-trigger \
             --image-uri $ECR_REGISTRY/$ECR_REPO_LAMBDA:${{ github.sha }}
 
       - name: Update Streamlit ECS service
         run: |
           aws ecs update-service \
-            --cluster ${{ env.PROJECT_NAME }}-${{ vars.ENVIRONMENT || 'dev' }}-cluster \
-            --service ${{ env.PROJECT_NAME }}-${{ vars.ENVIRONMENT || 'dev' }}-streamlit \
+            --cluster ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-cluster \
+            --service ${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-streamlit \
             --force-new-deployment
