@@ -18,39 +18,8 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
-  deploy-infra:
-    needs: ci
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7"
-
-      - name: Terraform Init
-        working-directory: infra/terraform
-        run: terraform init
-
-      - name: Terraform Plan
-        working-directory: infra/terraform
-        run: terraform plan -var-file=environments/dev.tfvars -out=tfplan
-
-      - name: Terraform Apply
-        working-directory: infra/terraform
-        run: terraform apply -auto-approve tfplan
-
   deploy-containers:
-    needs: deploy-infra
+    needs: ci
     runs-on: ubuntu-latest
     environment: production
 
